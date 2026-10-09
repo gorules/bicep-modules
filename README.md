@@ -41,7 +41,7 @@ flowchart TB
 | ---- | ------- |
 | Azure CLI | >= 2.61 |
 | Bicep CLI | >= 0.48.1 |
-| GoRules Agent | > 2.0.1 |
+| GoRules Agent | >= 2.0.2 |
 
 The deployer needs Contributor and Role Based Access Control Administrator on the resource group, or Owner. A private registry also needs role assignment rights on the registry.
 
