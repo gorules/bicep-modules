@@ -1,0 +1,3 @@
+modules/*.json
+*.local.bicepparam
+.DS_Store
