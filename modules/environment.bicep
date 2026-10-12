@@ -4,7 +4,7 @@ param tags object
 param subnetId string
 param zoneRedundant bool
 
-resource logs 'Microsoft.OperationalInsights/workspaces@2025-07-01' = {
+resource logs 'Microsoft.OperationalInsights/workspaces@2026-03-01' = {
   name: '${namePrefix}-logs'
   location: location
   tags: tags
