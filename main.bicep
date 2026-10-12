@@ -228,8 +228,6 @@ var errors = filter(
     (brms.?minReplicas ?? 1) > (brms.?maxReplicas ?? 1000)
       ? 'brms.minReplicas must be less than or equal to brms.maxReplicas'
       : ''
-    brms != null && empty(licenseKey) ? 'licenseKey is required with BRMS' : ''
-    brms.?ai != null && empty(aiApiKey) ? 'aiApiKey is required with brms.ai' : ''
     brms.?ai.?provider == 'azure-openai' && brms.?ai.?azureResourceName == null
       ? 'brms.ai.azureResourceName is required for azure-openai'
       : ''
@@ -269,10 +267,19 @@ resource agentIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11
 
 var agentPrincipal = agent == null ? [] : [{ id: agentIdentity.id, principalId: agentIdentity!.properties.principalId }]
 
+// Secure values are checked here, not in namePrefix, so what-if can resolve resource names.
+var secretErrors = filter(
+  [
+    empty(licenseKey) ? 'licenseKey is required with BRMS' : ''
+    brms.?ai != null && empty(aiApiKey) ? 'aiApiKey is required with brms.ai' : ''
+  ],
+  error => !empty(error)
+)
+
 resource brmsIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = if (brms != null) {
   name: '${namePrefix}-brms'
   location: location
-  tags: allTags
+  tags: empty(secretErrors) ? allTags : fail(join(secretErrors, '; '))
 }
 
 var brmsPrincipal = brms == null ? [] : [{ id: brmsIdentity.id, principalId: brmsIdentity!.properties.principalId }]
@@ -379,8 +386,17 @@ module vaultModule 'modules/vault.bicep' = if (brms != null) {
   }
 }
 
+var databaseName = '${namePrefix}-${uniqueString(resourceGroup().id, namePrefix)}'
+
+// Storage only grows, so never ask for less than autogrow has reached.
+@nullIfNotFound()
+resource currentDatabase 'Microsoft.DBforPostgreSQL/flexibleServers@2025-08-01' existing = if (brms != null) {
+  name: databaseName
+}
+
 module databaseModule 'modules/database.bicep' = if (brms != null) {
   params: {
+    name: databaseName
     namePrefix: namePrefix
     location: location
     tags: allTags
@@ -388,7 +404,7 @@ module databaseModule 'modules/database.bicep' = if (brms != null) {
     privateDnsZoneId: networkModule!.outputs.privateDnsZoneIds[postgresDnsZone]
     version: database.?version ?? '17'
     sku: databaseSku
-    storageSizeGB: database.?storageSizeGB ?? 32
+    storageSizeGB: max(database.?storageSizeGB ?? 32, currentDatabase.?properties.storage.storageSizeGB ?? 0)
     highAvailability: database.?highAvailability ?? false
     zoneRedundant: zoneRedundant
     backupRetentionDays: database.?backupRetentionDays ?? 7

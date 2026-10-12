@@ -132,7 +132,7 @@ Both take the same settings, plus the BRMS-only ones marked below.
 | ---- | ------- | ----------- |
 | `version` | `17` | PostgreSQL major version: `16`, `17` or `18`. |
 | `sku` | `Standard_B2s` | Compute size. Burstable sizes (`Standard_B*`) suit development; use General Purpose (`Standard_D2ds_v5` and up) for production. |
-| `storageSizeGB` | `32` | Grows automatically. |
+| `storageSizeGB` | `32` | Grows automatically. Redeploys keep the grown size. |
 | `highAvailability` | `false` | Standby replica, zone redundant when `zoneRedundant` is on. Not available on Burstable sizes. |
 | `backupRetentionDays` | `7` | 7 to 35. |
 | `geoRedundantBackup` | `false` | Copies backups to the paired region. Can't be changed later. |

@@ -7,6 +7,7 @@ param zoneRedundant bool
 param privateDnsZones string[]
 
 var natSku = zoneRedundant ? 'StandardV2' : 'Standard'
+var natZones = zoneRedundant ? ['1', '2', '3'] : null
 
 resource natIp 'Microsoft.Network/publicIPAddresses@2026-01-01' = if (natGateway) {
   name: '${namePrefix}-nat-ip'
@@ -15,6 +16,7 @@ resource natIp 'Microsoft.Network/publicIPAddresses@2026-01-01' = if (natGateway
   sku: {
     name: natSku
   }
+  zones: natZones
   properties: {
     publicIPAllocationMethod: 'Static'
   }
@@ -27,6 +29,7 @@ resource nat 'Microsoft.Network/natGateways@2026-01-01' = if (natGateway) {
   sku: {
     name: natSku
   }
+  zones: natZones
   properties: {
     publicIpAddresses: [
       {
