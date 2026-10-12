@@ -103,8 +103,8 @@ resource app 'Microsoft.App/containerApps@2026-07-01' = {
             {
               type: 'Startup'
               httpGet: healthCheck
-              periodSeconds: 5
-              failureThreshold: 24
+              periodSeconds: 12
+              failureThreshold: 10
             }
             {
               type: 'Liveness'

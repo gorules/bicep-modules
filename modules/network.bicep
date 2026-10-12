@@ -3,14 +3,17 @@ param location string
 param tags object
 param addressPrefix string
 param natGateway bool
+param zoneRedundant bool
 param privateDnsZones string[]
+
+var natSku = zoneRedundant ? 'StandardV2' : 'Standard'
 
 resource natIp 'Microsoft.Network/publicIPAddresses@2026-01-01' = if (natGateway) {
   name: '${namePrefix}-nat-ip'
   location: location
   tags: tags
   sku: {
-    name: 'Standard'
+    name: natSku
   }
   properties: {
     publicIPAllocationMethod: 'Static'
@@ -22,7 +25,7 @@ resource nat 'Microsoft.Network/natGateways@2026-01-01' = if (natGateway) {
   location: location
   tags: tags
   sku: {
-    name: 'Standard'
+    name: natSku
   }
   properties: {
     publicIpAddresses: [

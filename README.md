@@ -97,7 +97,7 @@ az stack group delete --name gorules --resource-group rg-gorules-prod --action-o
 | `environmentName` | required | Used in resource names, e.g. `dev`, `prod`. |
 | `location` | resource group location | Azure region. |
 | `tags` | `{}` | Merged with `Project`, `Environment` and `ManagedBy`. |
-| `zoneRedundant` | `true` | Spreads the Container Apps environment, storage and a high-availability database across availability zones. Set `false` in regions without zones. Can't be changed later. |
+| `zoneRedundant` | `true` | Spreads the Container Apps environment, storage, the NAT gateway and a high-availability database across availability zones. Set `false` in regions without zones. Can't be changed later. |
 | `network.addressPrefix` | `10.0.0.0/16` | Virtual network range, `/22` or larger. |
 | `network.natGateway` | `false` | Sends outbound traffic through a NAT gateway with a static public IP. |
 | `storage.versioning` | `true` | Keeps previous versions of overwritten blobs. |
