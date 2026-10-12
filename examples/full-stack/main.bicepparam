@@ -1,4 +1,4 @@
-using '../main.bicep'
+using '../../main.bicep'
 
 param projectName = 'gorules'
 param environmentName = 'prod'

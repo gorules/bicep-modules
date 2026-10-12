@@ -6,7 +6,7 @@ Bicep modules for deploying [GoRules](https://gorules.io) on Azure Container App
 
 GoRules is a Business Rules Management System (BRMS) for managing and executing business rules. It has two components:
 
-- **BRMS** - Management UI and API for creating, editing, and publishing rules. Requires a database and blob storage.
+- **BRMS** - Management UI and API for creating, editing and publishing rules. Requires a database and blob storage.
 - **Agent** - Stateless rule execution engine that pulls published rules from blob storage. Scales independently from BRMS.
 
 ## Architecture
@@ -49,8 +49,8 @@ flowchart TB
 
 | Pattern | Components | Example |
 | ------- | ---------- | ------- |
-| Full stack | BRMS + Agent + PostgreSQL + Key Vault + storage | [full-stack](examples/full-stack.bicepparam) |
-| Agent only | Agent + storage | [agent-only](examples/agent-only.bicepparam) |
+| Full stack | BRMS + Agent + PostgreSQL + Key Vault + storage | [full-stack](examples/full-stack) |
+| Agent only | Agent + storage | [agent-only](examples/agent-only) |
 
 ## Requirements
 
@@ -60,7 +60,7 @@ flowchart TB
 | Bicep CLI | >= 0.48.1 |
 | GoRules Agent | >= 2.0.2 |
 
-The deployer needs Contributor and Role Based Access Control Administrator on the resource group, or Owner. Database deletion protection, on by default, adds a lock, which needs Owner or User Access Administrator. A private registry also needs role assignment rights on the registry.
+The deployer needs Owner on the resource group. With `database.deletionProtection` off, Contributor plus Role Based Access Control Administrator is enough. A private registry also needs role assignment rights on the registry.
 
 ## Quick start
 
@@ -73,7 +73,7 @@ az stack group create \
   --name gorules \
   --resource-group rg-gorules-prod \
   --template-file main.bicep \
-  --parameters examples/full-stack.bicepparam \
+  --parameters examples/full-stack/main.bicepparam \
   --action-on-unmanage deleteAll \
   --deny-settings-mode none
 ```
@@ -155,7 +155,7 @@ BRMS encrypts secrets stored in rules with a key that the template creates:
 > [!CAUTION]
 > **Never delete or rotate the key.** Deleting the master key secret or the RSA key makes all BRMS secrets unreadable. BRMS always uses the newest RSA key version, so rotating it breaks secrets encrypted with an older one. Keep purge protection on in production.
 >
-> **Choose `secretsProvider` before first use.** Switching it later makes existing BRMS secrets unreadable, and the stack deletes the old master key secret.
+> **Choose `secretsProvider` before first use.** Switching it later makes existing BRMS secrets unreadable. The stack also deletes the old master key secret.
 
 The cookie secret and master key are generated on the first deployment only. Later deployments keep them.
 
@@ -175,7 +175,7 @@ param aiApiKey = readEnvironmentVariable('ANTHROPIC_API_KEY')
 | Name | Default | Description |
 | ---- | ------- | ----------- |
 | `provider` | required | `openai`, `anthropic`, `google` or `azure-openai`. |
-| `model` | required | Model name, or the deployment name for `azure-openai`. |
+| `model` | required | Model name. For `azure-openai`, the deployment name. |
 | `temperature` | `0.4` | 0 to 2, as a string. |
 | `maxOutputTokens` | `32000` | |
 | `thinkingLevel` | `medium` | `high` or `medium`. |
@@ -186,7 +186,7 @@ Container Apps times out requests after 240 seconds, enough for slow first respo
 
 ## Publishing rules
 
-BRMS publishes releases to the `rules` container and the Agent loads them from there. In BRMS, add an environment deployment of type Azure Storage with IAM on, the `storageBlobEndpoint` output as the blob service URL, and `rules` as the container.
+BRMS publishes releases to the `rules` container and the Agent loads them from there. In BRMS, add an environment deployment of type Azure Storage. Turn IAM on, set the blob service URL to the `storageBlobEndpoint` output and the container to `rules`.
 
 Storage only accepts traffic through its private endpoint. A publisher outside this deployment needs network access to it and Storage Blob Data Contributor on the container.
 
