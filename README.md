@@ -99,7 +99,7 @@ az stack group delete --name gorules --resource-group rg-gorules-prod --action-o
 | `tags` | `{}` | Merged with `Project`, `Environment` and `ManagedBy`. |
 | `zoneRedundant` | `true` | Spreads the Container Apps environment, storage, the NAT gateway and a high-availability database across availability zones. Set `false` in regions without zones. Can't be changed later. |
 | `network.addressPrefix` | `10.0.0.0/16` | Virtual network range, `/22` or larger. |
-| `network.natGateway` | `false` | Sends outbound traffic through a NAT gateway with a static public IP. |
+| `network.natGateway` | `false` | Sends outbound traffic through a NAT gateway with a static public IP. With `zoneRedundant` on, not available in India South Central. |
 | `storage.versioning` | `true` | Keeps previous versions of overwritten blobs. |
 | `containerRegistryId` | none | Azure Container Registry to pull images from with managed identity. |
 | `brms` | none | BRMS settings, see below. Omit to skip BRMS. |
