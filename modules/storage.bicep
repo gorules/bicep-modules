@@ -106,3 +106,4 @@ resource access 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
 
 output accountName string = account.name
 output containerName string = container.name
+output blobEndpoint string = account.properties.primaryEndpoints.blob
