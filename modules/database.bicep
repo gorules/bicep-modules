@@ -1,3 +1,4 @@
+param name string
 param namePrefix string
 param location string
 param tags object
@@ -20,7 +21,7 @@ var tier = startsWith(sku, 'Standard_B')
   : startsWith(sku, 'Standard_E') ? 'MemoryOptimized' : 'GeneralPurpose'
 
 resource server 'Microsoft.DBforPostgreSQL/flexibleServers@2025-08-01' = {
-  name: '${namePrefix}-${uniqueString(resourceGroup().id, namePrefix)}'
+  name: name
   location: location
   tags: tags
   sku: {

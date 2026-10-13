@@ -101,12 +101,6 @@ resource app 'Microsoft.App/containerApps@2026-07-01' = {
           )
           probes: [
             {
-              type: 'Startup'
-              httpGet: healthCheck
-              periodSeconds: 5
-              failureThreshold: 24
-            }
-            {
               type: 'Liveness'
               httpGet: healthCheck
               periodSeconds: 10
@@ -119,6 +113,12 @@ resource app 'Microsoft.App/containerApps@2026-07-01' = {
               periodSeconds: 10
               timeoutSeconds: 5
               failureThreshold: 3
+            }
+            {
+              type: 'Startup'
+              httpGet: healthCheck
+              periodSeconds: 12
+              failureThreshold: 10
             }
           ]
         }

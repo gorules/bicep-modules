@@ -97,9 +97,9 @@ az stack group delete --name gorules --resource-group rg-gorules-prod --action-o
 | `environmentName` | required | Used in resource names, e.g. `dev`, `prod`. |
 | `location` | resource group location | Azure region. |
 | `tags` | `{}` | Merged with `Project`, `Environment` and `ManagedBy`. |
-| `zoneRedundant` | `true` | Spreads the Container Apps environment, storage and a high-availability database across availability zones. Set `false` in regions without zones. Can't be changed later. |
+| `zoneRedundant` | `true` | Spreads the Container Apps environment, storage, the NAT gateway and a high-availability database across availability zones. Set `false` in regions without zones. Can't be changed later. |
 | `network.addressPrefix` | `10.0.0.0/16` | Virtual network range, `/22` or larger. |
-| `network.natGateway` | `false` | Sends outbound traffic through a NAT gateway with a static public IP. |
+| `network.natGateway` | `false` | Sends outbound traffic through a NAT gateway with a static public IP. With `zoneRedundant` on, not available in India South Central. |
 | `storage.versioning` | `true` | Keeps previous versions of overwritten blobs. |
 | `containerRegistryId` | none | Azure Container Registry to pull images from with managed identity. |
 | `brms` | none | BRMS settings, see below. Omit to skip BRMS. |
@@ -132,7 +132,7 @@ Both take the same settings, plus the BRMS-only ones marked below.
 | ---- | ------- | ----------- |
 | `version` | `17` | PostgreSQL major version: `16`, `17` or `18`. |
 | `sku` | `Standard_B2s` | Compute size. Burstable sizes (`Standard_B*`) suit development; use General Purpose (`Standard_D2ds_v5` and up) for production. |
-| `storageSizeGB` | `32` | Grows automatically. |
+| `storageSizeGB` | `32` | Grows automatically. Redeploys keep the grown size. |
 | `highAvailability` | `false` | Standby replica, zone redundant when `zoneRedundant` is on. Not available on Burstable sizes. |
 | `backupRetentionDays` | `7` | 7 to 35. |
 | `geoRedundantBackup` | `false` | Copies backups to the paired region. Can't be changed later. |

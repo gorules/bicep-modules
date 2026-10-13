@@ -30,7 +30,7 @@ param masterKey string = replace('${newGuid()}${newGuid()}', '-', '')
 
 func secretName(name string) string => toLower(replace(name, '_', '-'))
 
-resource vault 'Microsoft.KeyVault/vaults@2026-02-01' = {
+resource vault 'Microsoft.KeyVault/vaults@2026-05-15' = {
   name: 'kv${uniqueString(resourceGroup().id, namePrefix)}'
   location: location
   tags: tags
@@ -47,7 +47,7 @@ resource vault 'Microsoft.KeyVault/vaults@2026-02-01' = {
   }
 }
 
-resource license 'Microsoft.KeyVault/vaults/secrets@2026-02-01' = {
+resource license 'Microsoft.KeyVault/vaults/secrets@2026-05-15' = {
   parent: vault
   name: 'license-key'
   properties: {
@@ -56,7 +56,7 @@ resource license 'Microsoft.KeyVault/vaults/secrets@2026-02-01' = {
 }
 
 @onlyIfNotExists()
-resource cookie 'Microsoft.KeyVault/vaults/secrets@2026-02-01' = {
+resource cookie 'Microsoft.KeyVault/vaults/secrets@2026-05-15' = {
   parent: vault
   name: 'cookie-secret'
   properties: {
@@ -65,7 +65,7 @@ resource cookie 'Microsoft.KeyVault/vaults/secrets@2026-02-01' = {
 }
 
 @onlyIfNotExists()
-resource master 'Microsoft.KeyVault/vaults/secrets@2026-02-01' = if (createMasterKey) {
+resource master 'Microsoft.KeyVault/vaults/secrets@2026-05-15' = if (createMasterKey) {
   parent: vault
   name: 'secrets-master-key'
   properties: {
@@ -73,7 +73,7 @@ resource master 'Microsoft.KeyVault/vaults/secrets@2026-02-01' = if (createMaste
   }
 }
 
-resource extra 'Microsoft.KeyVault/vaults/secrets@2026-02-01' = [
+resource extra 'Microsoft.KeyVault/vaults/secrets@2026-05-15' = [
   for item in items(secrets): {
     parent: vault
     name: secretName(item.key)
@@ -83,7 +83,7 @@ resource extra 'Microsoft.KeyVault/vaults/secrets@2026-02-01' = [
   }
 ]
 
-resource key 'Microsoft.KeyVault/vaults/keys@2026-02-01' = if (createKey) {
+resource key 'Microsoft.KeyVault/vaults/keys@2026-05-15' = if (createKey) {
   parent: vault
   name: 'brms-secrets'
   properties: {
