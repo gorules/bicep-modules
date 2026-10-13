@@ -208,6 +208,10 @@ param aiApiKey string = ''
 @description('Extra secret environment variables for BRMS, e.g. { SSO_OAUTH2_CLIENT_SECRET: \'...\' }.')
 param brmsSecrets object = {}
 
+@secure()
+@description('Extra secret environment variables for the Agent, e.g. { RELEASE_ZIP_PASSWORD: \'...\' }.')
+param agentSecrets object = {}
+
 var prefix = '${projectName}-${environmentName}'
 
 var validName = empty(filter(
@@ -292,7 +296,7 @@ module networkModule 'modules/network.bicep' = if (deployApps) {
     addressPrefix: addressPrefix
     natGateway: network.?natGateway ?? false
     zoneRedundant: zoneRedundant
-    privateDnsZones: concat([blobDnsZone], brms == null ? [] : [vaultDnsZone, postgresDnsZone])
+    privateDnsZones: concat([blobDnsZone, vaultDnsZone], brms == null ? [] : [postgresDnsZone])
   }
 }
 
@@ -352,6 +356,7 @@ module agentApp 'modules/app.bicep' = if (agent != null) {
       ],
       agent.?env ?? []
     )
+    secrets: vaultModule.?outputs.agentAppSecrets ?? []
   }
 }
 
@@ -359,7 +364,7 @@ var ai = brms.?ai
 var databaseSku = database.?sku ?? 'Standard_B2s'
 var secretsProvider = brms.?secretsProvider ?? 'env'
 
-module vaultModule 'modules/vault.bicep' = if (brms != null) {
+module vaultModule 'modules/vault.bicep' = if (brms != null || (agent != null && !empty(agentSecrets))) {
   params: {
     namePrefix: namePrefix
     location: location
@@ -368,21 +373,22 @@ module vaultModule 'modules/vault.bicep' = if (brms != null) {
     privateDnsZoneId: networkModule!.outputs.privateDnsZoneIds[vaultDnsZone]
     softDeleteRetentionDays: vault.?softDeleteRetentionDays ?? 90
     purgeProtection: vault.?purgeProtection ?? true
-    reader: {
-      id: brmsIdentity.id
-      principalId: brmsIdentity!.properties.principalId
-    }
-    createKey: secretsProvider == 'azure-keyvault'
-    createMasterKey: secretsProvider == 'env'
+    brmsReader: first(brmsPrincipal)
+    agentReader: first(agentPrincipal)
+    createKey: brms != null && secretsProvider == 'azure-keyvault'
+    createMasterKey: brms != null && secretsProvider == 'env'
     licenseKey: licenseKey
-    secrets: union(
-      brmsSecrets,
-      ai == null
-        ? {}
-        : {
-            LLM_API_KEY: aiApiKey
-          }
-    )
+    secrets: brms == null
+      ? {}
+      : union(
+          brmsSecrets,
+          ai == null
+            ? {}
+            : {
+                LLM_API_KEY: aiApiKey
+              }
+        )
+    agentSecrets: agent == null ? {} : agentSecrets
   }
 }
 
