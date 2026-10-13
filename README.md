@@ -42,7 +42,7 @@ flowchart TB
 
 - BRMS and the Agent run in a Container Apps environment inside the virtual network. Each gets an HTTPS address under `*.azurecontainerapps.io`, so BRMS works without a custom domain.
 - PostgreSQL, Key Vault and storage are private, reached through private endpoints.
-- The apps use managed identities, not passwords or keys. BRMS signs in to PostgreSQL with Microsoft Entra ID, reads Key Vault and writes to storage. The Agent only reads storage.
+- The apps use managed identities, not passwords or keys. BRMS signs in to PostgreSQL with Microsoft Entra ID, reads Key Vault and writes to storage. The Agent reads storage and its own Key Vault secrets.
 - Logs go to a Log Analytics workspace.
 
 ## Deployment patterns
@@ -105,10 +105,11 @@ az stack group delete --name gorules --resource-group rg-gorules-prod --action-o
 | `brms` | none | BRMS settings, see below. Omit to skip BRMS. |
 | `agent` | none | Agent settings, see below. Omit to skip the Agent. |
 | `database` | `{}` | PostgreSQL settings for BRMS, see below. |
-| `vault` | `{}` | Key Vault settings for BRMS, see below. |
+| `vault` | `{}` | Key Vault settings, see below. |
 | `licenseKey` | required with BRMS | GoRules license key. Secure. |
 | `aiApiKey` | required with `brms.ai` | API key for the AI provider. Secure. |
 | `brmsSecrets` | `{}` | Extra secret environment variables for BRMS, e.g. `{ SSO_OAUTH2_CLIENT_SECRET: '...' }`. Stored in Key Vault. Secure. |
+| `agentSecrets` | `{}` | Extra secret environment variables for the Agent, e.g. `{ RELEASE_ZIP_PASSWORD: '...' }`. Stored in Key Vault. Secure. |
 
 ### BRMS and Agent
 
@@ -139,6 +140,8 @@ Both take the same settings, plus the BRMS-only ones marked below.
 | `deletionProtection` | `true` | Locks the server against deletion. |
 
 ### Key Vault
+
+Agent-only deployments get a Key Vault only when `agentSecrets` is set.
 
 | Name | Default | Description |
 | ---- | ------- | ----------- |
@@ -189,6 +192,8 @@ Container Apps times out requests after 240 seconds, enough for slow first respo
 BRMS publishes releases to the `rules` container and the Agent loads them from there. In BRMS, add an environment deployment of type Azure Storage. Turn IAM on, set the blob service URL to the `storageBlobEndpoint` output and the container to `rules`.
 
 Storage only accepts traffic through its private endpoint. A publisher outside this deployment needs network access to it and Storage Blob Data Contributor on the container.
+
+To password-protect releases, set the same `RELEASE_ZIP_PASSWORD` in `brmsSecrets` and `agentSecrets`. BRMS encrypts the release zips with it and the Agent decrypts them.
 
 ## Container images
 

@@ -66,6 +66,14 @@ az containerapp logs show --name gorules-prod-agent --resource-group rg-gorules-
 
 The Agent loads releases from the `rules` container. Storage only accepts traffic through its private endpoint. A BRMS outside this deployment needs network access to it plus Storage Blob Data Contributor on the container. See [Publishing rules](../../README.md#publishing-rules).
 
+If BRMS encrypts releases with `RELEASE_ZIP_PASSWORD`, give the Agent the same password. The template then also creates a Key Vault for it:
+
+```bicep
+param agentSecrets = {
+  RELEASE_ZIP_PASSWORD: readEnvironmentVariable('RELEASE_ZIP_PASSWORD')
+}
+```
+
 To evaluate a published decision:
 
 ```bash
@@ -84,6 +92,7 @@ curl -X POST $AGENT_URL/api/projects/<project-key>/evaluate/<decision> \
 | `storageAccountName` | Storage account. |
 | `storageContainerName` | Container the Agent reads, `rules`. |
 | `storageBlobEndpoint` | Blob service URL. |
+| `keyVaultUri` | Key Vault URI, only with `agentSecrets`. |
 | `vnetId` | Virtual network. |
 
 ## Cleanup
@@ -94,3 +103,5 @@ az group delete --name rg-gorules-prod
 ```
 
 Deleting the stack takes about 30 minutes.
+
+With `agentSecrets`, Azure keeps the deleted Key Vault for a while and its name can't be reused. See [Cleanup](../full-stack/README.md#cleanup) in the full-stack example.
