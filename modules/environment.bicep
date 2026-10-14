@@ -3,6 +3,7 @@ param location string
 param tags object
 param subnetId string
 param zoneRedundant bool
+param internal bool
 
 resource logs 'Microsoft.OperationalInsights/workspaces@2026-03-01' = {
   name: '${namePrefix}-logs'
@@ -30,7 +31,7 @@ resource environment 'Microsoft.App/managedEnvironments@2026-07-01' = {
     }
     vnetConfiguration: {
       infrastructureSubnetId: subnetId
-      internal: false
+      internal: internal
     }
     workloadProfiles: [
       {
@@ -44,3 +45,4 @@ resource environment 'Microsoft.App/managedEnvironments@2026-07-01' = {
 
 output id string = environment.id
 output defaultDomain string = environment.properties.defaultDomain
+output staticIp string = environment.properties.staticIp

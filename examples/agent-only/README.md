@@ -94,6 +94,7 @@ curl -X POST $AGENT_URL/api/projects/<project-key>/evaluate/<decision> \
 | `storageBlobEndpoint` | Blob service URL. |
 | `keyVaultUri` | Key Vault URI, only with `agentSecrets`. |
 | `vnetId` | Virtual network. |
+| `environmentIp` | Container Apps environment IP. |
 
 ## Cleanup
 

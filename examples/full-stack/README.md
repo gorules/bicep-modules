@@ -81,6 +81,7 @@ curl -X POST <agentUrl>/api/projects/<project-key>/evaluate/<decision> \
 | `storageContainerName` | Container BRMS publishes to, `rules`. |
 | `storageBlobEndpoint` | Blob service URL for the BRMS environment deployment. |
 | `vnetId` | Virtual network. |
+| `environmentIp` | Container Apps environment IP. |
 
 ## Cleanup
 

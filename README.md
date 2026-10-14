@@ -51,6 +51,7 @@ flowchart TB
 | ------- | ---------- | ------- |
 | Full stack | BRMS + Agent + PostgreSQL + Key Vault + storage | [full-stack](examples/full-stack) |
 | Agent only | Agent + storage | [agent-only](examples/agent-only) |
+| Internal | Full stack, reachable only from the virtual network | [internal](examples/internal) |
 
 ## Requirements
 
@@ -100,6 +101,7 @@ az stack group delete --name gorules --resource-group rg-gorules-prod --action-o
 | `zoneRedundant` | `true` | Spreads the Container Apps environment, storage, the NAT gateway and a high-availability database across availability zones. Set `false` in regions without zones. Can't be changed later. |
 | `network.addressPrefix` | `10.0.0.0/16` | Virtual network range, `/22` or larger. |
 | `network.natGateway` | `false` | Sends outbound traffic through a NAT gateway with a static public IP. With `zoneRedundant` on, not available in India South Central. |
+| `network.internal` | `false` | Makes BRMS and the Agent reachable only from the virtual network. See [Internal environment](#internal-environment). Can't be changed later. |
 | `storage.versioning` | `true` | Keeps previous versions of overwritten blobs. |
 | `containerRegistryId` | none | Azure Container Registry to pull images from with managed identity. |
 | `brms` | none | BRMS settings, see below. Omit to skip BRMS. |
@@ -147,6 +149,20 @@ Agent-only deployments get a Key Vault only when `agentSecrets` is set.
 | ---- | ------- | ----------- |
 | `softDeleteRetentionDays` | `90` | Days a deleted vault and its secrets can be recovered, 7 to 90. Can't be changed later. |
 | `purgeProtection` | `true` | Blocks permanent deletion during the retention period. Can't be turned off once on. |
+
+## Internal environment
+
+```bicep
+param network = {
+  internal: true
+}
+```
+
+BRMS and the Agent then get a private IP in the virtual network and no public address. They are reachable from the virtual network and from networks connected to it by peering, VPN or ExpressRoute. Set `allowedCidrBlocks` to those private ranges.
+
+The template creates a private DNS zone for the environment's default domain and links it to the virtual network, so `brmsUrl` and `agentUrl` resolve there. Other networks need the same names. Link the zone to them or point a wildcard record for the domain at the `environmentIp` output in your own DNS.
+
+The apps keep HTTPS on the default domain. Outbound traffic still reaches the internet, which BRMS needs for its license check.
 
 ## Secrets encryption
 
