@@ -52,6 +52,7 @@ flowchart TB
 | Full stack | BRMS + Agent + PostgreSQL + Key Vault + storage | [full-stack](examples/full-stack) |
 | Agent only | Agent + storage | [agent-only](examples/agent-only) |
 | Internal | Full stack, reachable only from the virtual network | [internal](examples/internal) |
+| Existing virtual network | Full stack in your own subnets | [existing-vnet](examples/existing-vnet) |
 
 ## Requirements
 
@@ -102,6 +103,9 @@ az stack group delete --name gorules --resource-group rg-gorules-prod --action-o
 | `network.addressPrefix` | `10.0.0.0/16` | Virtual network range, `/22` or larger. |
 | `network.natGateway` | `false` | Sends outbound traffic through a NAT gateway with a static public IP. With `zoneRedundant` on, not available in India South Central. |
 | `network.internal` | `false` | Makes BRMS and the Agent reachable only from the virtual network. See [Internal environment](#internal-environment). Can't be changed later. |
+| `network.appsSubnetId` | none | Existing subnet for Container Apps. See [Existing virtual network](#existing-virtual-network). Can't be changed later. |
+| `network.privateEndpointSubnetId` | none | Existing subnet for the private endpoints. |
+| `network.privateDnsZoneIds` | none | Existing private DNS zones for the private endpoints. |
 | `storage.versioning` | `true` | Keeps previous versions of overwritten blobs. |
 | `containerRegistryId` | none | Azure Container Registry to pull images from with managed identity. |
 | `brms` | none | BRMS settings, see below. Omit to skip BRMS. |
@@ -163,6 +167,33 @@ BRMS and the Agent then get a private IP in the virtual network and no public ad
 The template creates a private DNS zone for the environment's default domain and links it to the virtual network, so `brmsUrl` and `agentUrl` resolve there. Other networks need the same names. Link the zone to them or point a wildcard record for the domain at the `environmentIp` output in your own DNS.
 
 The apps keep HTTPS on the default domain. Outbound traffic still reaches the internet, which BRMS needs for its license check.
+
+## Existing virtual network
+
+```bicep
+param network = {
+  appsSubnetId: '/subscriptions/.../virtualNetworks/vnet-prod/subnets/gorules-apps'
+  privateEndpointSubnetId: '/subscriptions/.../virtualNetworks/vnet-prod/subnets/gorules-endpoints'
+}
+```
+
+- Both subnets must be in the same virtual network, in the subscription and region of the deployment.
+- The apps subnet is only for Container Apps. Delegate it to `Microsoft.App/environments` and make it `/27` or larger. A `/27` runs up to 90 replicas.
+- Routes and network security groups on the subnets must let the apps reach the internet and Azure. BRMS checks its license online. See [securing a virtual network](https://learn.microsoft.com/azure/container-apps/firewall-integration) for the rules Container Apps needs.
+- `natGateway` and `addressPrefix` don't apply. Outbound traffic follows your routes.
+- The deployer also needs Network Contributor on the virtual network.
+
+The template creates private DNS zones for storage, Key Vault and PostgreSQL and links them to the virtual network. A virtual network can be linked to only one zone per name, so if yours already uses central `privatelink` zones, pass them instead:
+
+```bicep
+privateDnsZoneIds: [
+  '/subscriptions/.../privateDnsZones/privatelink.blob.core.windows.net'
+  '/subscriptions/.../privateDnsZones/privatelink.vaultcore.azure.net'
+  '/subscriptions/.../privateDnsZones/privatelink.postgres.database.azure.com'
+]
+```
+
+The private endpoints then register in these zones. The PostgreSQL zone is only needed with BRMS. The deployer needs Private DNS Zone Contributor on the zones. Your DNS has to resolve them.
 
 ## Secrets encryption
 
