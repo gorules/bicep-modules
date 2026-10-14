@@ -4,7 +4,16 @@ param tags object
 param addressPrefix string
 param natGateway bool
 param zoneRedundant bool
+param appsSubnetId string?
+param privateEndpointSubnetId string?
+
+@description('Private DNS zones the private endpoints need.')
 param privateDnsZones string[]
+
+@description('Existing zones for privateDnsZones. Empty to create them.')
+param privateDnsZoneIds string[] = []
+
+var createZones = empty(privateDnsZoneIds)
 
 var natSku = zoneRedundant ? 'StandardV2' : 'Standard'
 var natZones = zoneRedundant ? ['1', '2', '3'] : null
@@ -39,7 +48,7 @@ resource nat 'Microsoft.Network/natGateways@2026-01-01' = if (natGateway) {
   }
 }
 
-resource vnet 'Microsoft.Network/virtualNetworks@2026-01-01' = {
+resource vnet 'Microsoft.Network/virtualNetworks@2026-01-01' = if (appsSubnetId == null) {
   name: '${namePrefix}-vnet'
   location: location
   tags: tags
@@ -75,8 +84,10 @@ resource vnet 'Microsoft.Network/virtualNetworks@2026-01-01' = {
   }
 }
 
+var vnetId = appsSubnetId == null ? vnet.id : split(appsSubnetId!, '/subnets/')[0]
+
 resource zones 'Microsoft.Network/privateDnsZones@2024-06-01' = [
-  for zone in privateDnsZones: {
+  for zone in createZones ? privateDnsZones : []: {
     name: zone
     location: 'global'
     tags: tags
@@ -84,21 +95,23 @@ resource zones 'Microsoft.Network/privateDnsZones@2024-06-01' = [
 ]
 
 resource zoneLinks 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01' = [
-  for (zone, i) in privateDnsZones: {
+  for (zone, i) in createZones ? privateDnsZones : []: {
     parent: zones[i]
-    name: vnet.name
+    name: last(split(vnetId, '/'))
     location: 'global'
     tags: tags
     properties: {
       virtualNetwork: {
-        id: vnet.id
+        id: vnetId
       }
       registrationEnabled: false
     }
   }
 ]
 
-output appsSubnetId string = resourceId('Microsoft.Network/virtualNetworks/subnets', vnet.name, 'apps')
-output privateEndpointSubnetId string = resourceId('Microsoft.Network/virtualNetworks/subnets', vnet.name, 'private-endpoints')
-output vnetId string = vnet.id
-output privateDnsZoneIds object = toObject(privateDnsZones, zone => zone, zone => resourceId('Microsoft.Network/privateDnsZones', zone))
+output appsSubnetId string = appsSubnetId ?? resourceId('Microsoft.Network/virtualNetworks/subnets', vnet.name, 'apps')
+output privateEndpointSubnetId string = privateEndpointSubnetId ?? resourceId('Microsoft.Network/virtualNetworks/subnets', vnet.name, 'private-endpoints')
+output vnetId string = vnetId
+output privateDnsZoneIds object = createZones
+  ? toObject(privateDnsZones, zone => zone, zone => resourceId('Microsoft.Network/privateDnsZones', zone))
+  : toObject(privateDnsZoneIds, id => last(split(id, '/')), id => id)

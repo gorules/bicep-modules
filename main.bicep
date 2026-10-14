@@ -33,6 +33,15 @@ type networkConfig = {
 
   @description('Make BRMS and the Agent reachable only from the virtual network. Can\'t be changed after the first deployment. Default false.')
   internal: bool?
+
+  @description('Existing subnet for Container Apps, delegated to Microsoft.App/environments, /27 or larger. Omit to create a virtual network.')
+  appsSubnetId: string?
+
+  @description('Existing subnet for private endpoints, in the same virtual network as appsSubnetId.')
+  privateEndpointSubnetId: string?
+
+  @description('Existing private DNS zones for the private endpoints, already linked to the virtual network. Omit to create them.')
+  privateDnsZoneIds: string[]?
 }
 
 @sealed()
@@ -241,6 +250,25 @@ var errors = filter(
     (database.?highAvailability ?? false) && startsWith(database.?sku ?? 'Standard_B2s', 'Standard_B')
       ? 'database.highAvailability is not available on Burstable sizes'
       : ''
+    (network.?appsSubnetId == null) != (network.?privateEndpointSubnetId == null)
+      ? 'network.appsSubnetId and network.privateEndpointSubnetId must be set together'
+      : ''
+    network.?appsSubnetId != null && (network.?addressPrefix != null || (network.?natGateway ?? false))
+      ? 'network.addressPrefix and network.natGateway can\'t be used with existing subnets'
+      : ''
+    network.?appsSubnetId == null
+      ? ''
+      : split(network.?appsSubnetId!, '/subnets/')[0] != split(network.?privateEndpointSubnetId ?? '', '/subnets/')[0]
+          ? 'network.appsSubnetId and network.privateEndpointSubnetId must be in the same virtual network'
+          : toLower(split(network.?appsSubnetId!, '/')[2]) != toLower(subscription().subscriptionId)
+              ? 'the virtual network must be in the deployment subscription'
+              : ''
+    network.?privateDnsZoneIds != null && network.?appsSubnetId == null
+      ? 'network.privateDnsZoneIds needs network.appsSubnetId'
+      : ''
+    network.?privateDnsZoneIds != null && !empty(missingZones)
+      ? 'network.privateDnsZoneIds is missing ${join(missingZones, ', ')}'
+      : ''
   ],
   error => !empty(error)
 )
@@ -253,6 +281,8 @@ var internal = network.?internal ?? false
 var blobDnsZone = 'privatelink.blob.${environment().suffixes.storage}'
 var vaultDnsZone = 'privatelink.vaultcore.azure.net'
 var postgresDnsZone = 'privatelink.postgres.database.azure.com'
+var dnsZones = concat([blobDnsZone, vaultDnsZone], brms == null ? [] : [postgresDnsZone])
+var missingZones = filter(dnsZones, zone => empty(filter(network.?privateDnsZoneIds ?? [], id => toLower(last(split(id, '/'))) == zone)))
 
 var allTags = union(
   {
@@ -300,7 +330,10 @@ module networkModule 'modules/network.bicep' = if (deployApps) {
     addressPrefix: addressPrefix
     natGateway: network.?natGateway ?? false
     zoneRedundant: zoneRedundant
-    privateDnsZones: concat([blobDnsZone, vaultDnsZone], brms == null ? [] : [postgresDnsZone])
+    appsSubnetId: network.?appsSubnetId
+    privateEndpointSubnetId: network.?privateEndpointSubnetId
+    privateDnsZones: dnsZones
+    privateDnsZoneIds: network.?privateDnsZoneIds ?? []
   }
 }
 
