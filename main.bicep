@@ -75,6 +75,12 @@ type agentConfig = {
   @description('Client CIDR ranges allowed to reach the Agent, e.g. ["0.0.0.0/0"].')
   allowedCidrBlocks: string[]
 
+  @description('Custom domain, e.g. agent.example.com. Create its DNS records first.')
+  domain: string?
+
+  @description('Key Vault secret resource ID of the certificate for domain, e.g. <vault ID>/secrets/<certificate name>. Omit for a free managed certificate.')
+  certificateId: string?
+
   @description('Extra environment variables.')
   env: envVar[]?
 }
@@ -163,6 +169,12 @@ type brmsConfig = {
   @description('Client CIDR ranges allowed to reach BRMS, e.g. ["0.0.0.0/0"].')
   allowedCidrBlocks: string[]
 
+  @description('Custom domain, e.g. brms.example.com. Create its DNS records first.')
+  domain: string?
+
+  @description('Key Vault secret resource ID of the certificate for domain, e.g. <vault ID>/secrets/<certificate name>. Omit for a free managed certificate.')
+  certificateId: string?
+
   @description('Key that encrypts secrets stored in BRMS: a generated master key (env) or a Key Vault RSA key. Default env.')
   secretsProvider: ('env' | 'azure-keyvault')?
 
@@ -231,7 +243,24 @@ var validName = empty(filter(
   i => !contains('abcdefghijklmnopqrstuvwxyz0123456789-', substring(prefix, i, 1))
 )) && contains('abcdefghijklmnopqrstuvwxyz', first(prefix)) && !endsWith(prefix, '-') && !contains(prefix, '--')
 
-var errors = filter(
+func domainErrors(name string, app object, internal bool) string[] =>
+  filter(
+    [
+      app.?certificateId != null && app.?domain == null ? '${name}.certificateId needs ${name}.domain' : ''
+      app.?certificateId != null && !(contains(toLower(app.?certificateId ?? ''), '/providers/microsoft.keyvault/vaults/') && contains(app.?certificateId ?? '', '/secrets/') && length(split(app.?certificateId ?? '', '/')) == 11)
+        ? '${name}.certificateId must be a Key Vault secret resource ID'
+        : ''
+      app.?domain != null && app.?certificateId == null && internal
+        ? '${name}.domain needs ${name}.certificateId in an internal environment'
+        : ''
+      app.?domain != null && app.?certificateId == null && !internal && !contains(app.?allowedCidrBlocks ?? [], '0.0.0.0/0')
+        ? '${name}.domain without ${name}.certificateId needs 0.0.0.0/0 in ${name}.allowedCidrBlocks'
+        : ''
+    ],
+    error => !empty(error)
+  )
+
+var errors = concat(domainErrors('brms', brms ?? {}, internal), domainErrors('agent', agent ?? {}, internal), filter(
   [
     length(prefix) > 26 ? 'projectName and environmentName together must be at most 25 characters' : ''
     !validName
@@ -271,7 +300,7 @@ var errors = filter(
       : ''
   ],
   error => !empty(error)
-)
+))
 
 var namePrefix = empty(errors) ? prefix : fail(join(errors, '; '))
 
@@ -351,6 +380,34 @@ module storageModule 'modules/storage.bicep' = if (deployApps) {
   }
 }
 
+resource environmentIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = if (brms.?certificateId != null || agent.?certificateId != null) {
+  name: '${namePrefix}-env'
+  location: location
+  tags: allTags
+}
+
+var brmsCertificateRef = brms.?certificateId == null ? null : split(brms.?certificateId!, '/')
+
+module brmsCertificate 'modules/certificate-access.bicep' = if (brmsCertificateRef != null) {
+  scope: resourceGroup(brmsCertificateRef![2], brmsCertificateRef![4])
+  params: {
+    vaultName: brmsCertificateRef![8]
+    secretName: brmsCertificateRef![10]
+    principalId: environmentIdentity!.properties.principalId
+  }
+}
+
+var agentCertificateRef = agent.?certificateId == null ? null : split(agent.?certificateId!, '/')
+
+module agentCertificate 'modules/certificate-access.bicep' = if (agentCertificateRef != null) {
+  scope: resourceGroup(agentCertificateRef![2], agentCertificateRef![4])
+  params: {
+    vaultName: agentCertificateRef![8]
+    secretName: agentCertificateRef![10]
+    principalId: environmentIdentity!.properties.principalId
+  }
+}
+
 module environmentModule 'modules/environment.bicep' = if (deployApps) {
   params: {
     namePrefix: namePrefix
@@ -359,6 +416,7 @@ module environmentModule 'modules/environment.bicep' = if (deployApps) {
     subnetId: networkModule!.outputs.appsSubnetId
     zoneRedundant: zoneRedundant
     internal: internal
+    identityId: environmentIdentity.?id
   }
 }
 
@@ -404,7 +462,15 @@ module agentApp 'modules/app.bicep' = if (agent != null) {
       agent.?env ?? []
     )
     secrets: vaultModule.?outputs.agentAppSecrets ?? []
+    domain: agent.?domain
+    certificateUrl: agentCertificateRef == null
+      ? null
+      : 'https://${agentCertificateRef![8]}${environment().suffixes.keyvaultDns}/secrets/${agentCertificateRef![10]}'
+    certificateIdentityId: environmentIdentity.?id
   }
+  dependsOn: [
+    agentCertificate
+  ]
 }
 
 var ai = brms.?ai
@@ -491,7 +557,7 @@ module brmsApp 'modules/app.bicep' = if (brms != null) {
     allowedCidrBlocks: brms!.allowedCidrBlocks
     env: concat(
       [
-        { name: 'APP_URL', value: 'https://${brmsName}.${environmentModule!.outputs.defaultDomain}' }
+        { name: 'APP_URL', value: 'https://${brms.?domain ?? '${brmsName}.${environmentModule!.outputs.defaultDomain}'}' }
         { name: 'DB_HOST', value: databaseModule!.outputs.host }
         { name: 'DB_PORT', value: '5432' }
         { name: 'DB_NAME', value: databaseModule!.outputs.name }
@@ -528,12 +594,20 @@ module brmsApp 'modules/app.bicep' = if (brms != null) {
       brms.?env ?? []
     )
     secrets: vaultModule!.outputs.appSecrets
+    domain: brms.?domain
+    certificateUrl: brmsCertificateRef == null
+      ? null
+      : 'https://${brmsCertificateRef![8]}${environment().suffixes.keyvaultDns}/secrets/${brmsCertificateRef![10]}'
+    certificateIdentityId: environmentIdentity.?id
   }
+  dependsOn: [
+    brmsCertificate
+  ]
 }
 
-output agentUrl string? = agent == null ? null : 'https://${agentApp!.outputs.fqdn}'
+output agentUrl string? = agent == null ? null : 'https://${agent.?domain ?? agentApp!.outputs.fqdn}'
 output agentPrincipalId string? = agentIdentity.?properties.principalId
-output brmsUrl string? = brms == null ? null : 'https://${brmsApp!.outputs.fqdn}'
+output brmsUrl string? = brms == null ? null : 'https://${brms.?domain ?? brmsApp!.outputs.fqdn}'
 output brmsPrincipalId string? = brmsIdentity.?properties.principalId
 output databaseHost string? = databaseModule.?outputs.host
 output keyVaultUri string? = vaultModule.?outputs.uri
@@ -542,3 +616,4 @@ output storageContainerName string? = storageModule.?outputs.containerName
 output storageBlobEndpoint string? = storageModule.?outputs.blobEndpoint
 output vnetId string? = networkModule.?outputs.vnetId
 output environmentIp string? = environmentModule.?outputs.staticIp
+output customDomainVerificationId string? = environmentModule.?outputs.customDomainVerificationId

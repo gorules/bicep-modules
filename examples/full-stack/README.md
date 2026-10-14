@@ -82,6 +82,7 @@ curl -X POST <agentUrl>/api/projects/<project-key>/evaluate/<decision> \
 | `storageBlobEndpoint` | Blob service URL for the BRMS environment deployment. |
 | `vnetId` | Virtual network. |
 | `environmentIp` | Container Apps environment IP. |
+| `customDomainVerificationId` | Value for the `asuid` TXT record of a custom domain. |
 
 ## Cleanup
 
