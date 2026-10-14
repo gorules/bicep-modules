@@ -30,6 +30,9 @@ type networkConfig = {
 
   @description('Route egress through a NAT gateway with a static public IP. Default false.')
   natGateway: bool?
+
+  @description('Make BRMS and the Agent reachable only from the virtual network. Can\'t be changed after the first deployment. Default false.')
+  internal: bool?
 }
 
 @sealed()
@@ -245,6 +248,7 @@ var errors = filter(
 var namePrefix = empty(errors) ? prefix : fail(join(errors, '; '))
 
 var addressPrefix = network.?addressPrefix ?? '10.0.0.0/16'
+var internal = network.?internal ?? false
 
 var blobDnsZone = 'privatelink.blob.${environment().suffixes.storage}'
 var vaultDnsZone = 'privatelink.vaultcore.azure.net'
@@ -321,6 +325,16 @@ module environmentModule 'modules/environment.bicep' = if (deployApps) {
     tags: allTags
     subnetId: networkModule!.outputs.appsSubnetId
     zoneRedundant: zoneRedundant
+    internal: internal
+  }
+}
+
+module environmentDns 'modules/private-zone.bicep' = if (deployApps && internal) {
+  params: {
+    name: environmentModule!.outputs.defaultDomain
+    tags: allTags
+    vnetId: networkModule!.outputs.vnetId
+    ipAddress: environmentModule!.outputs.staticIp
   }
 }
 
@@ -494,3 +508,4 @@ output storageAccountName string? = storageModule.?outputs.accountName
 output storageContainerName string? = storageModule.?outputs.containerName
 output storageBlobEndpoint string? = storageModule.?outputs.blobEndpoint
 output vnetId string? = networkModule.?outputs.vnetId
+output environmentIp string? = environmentModule.?outputs.staticIp
