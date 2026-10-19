@@ -222,6 +222,8 @@ Without `certificateId`, Container Apps issues a free certificate and renews it.
 - The domain must be a subdomain like `brms.example.com`.
 - If the domain has CAA records, one of them must allow `digicert.com`.
 
+The certificate takes about five minutes to issue. A domain moved from `certificateId` to a free certificate has no HTTPS until then. On later deployments what-if shows the certificate and its binding as changed. They stay as they are.
+
 To use your own certificate, import it into Key Vault and set `certificateId` to the vault resource ID followed by `/secrets/<certificate name>`. The vault must use Azure RBAC. The template gives a `<project>-<environment>-env` identity Key Vault Secrets User on the certificate, so the deployer needs Owner or Role Based Access Control Administrator on the vault. Container Apps picks up a renewed certificate within 12 hours. If the vault blocks public access, the environment's virtual network needs a private endpoint to it. Without one the import fails with a permission error.
 
 In an internal environment Azure doesn't check the DNS records. Point the domain at `environmentIp` in your DNS and use `certificateId`.

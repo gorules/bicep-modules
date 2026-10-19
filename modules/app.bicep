@@ -177,7 +177,7 @@ resource app 'Microsoft.App/containerApps@2026-07-01' = {
 
 resource managedCertificate 'Microsoft.App/managedEnvironments/managedCertificates@2026-07-01' = if (domain != null && certificateUrl == null) {
   parent: environment
-  name: name
+  name: replace(domain ?? name, '.', '-')
   location: location
   tags: tags
   properties: {
