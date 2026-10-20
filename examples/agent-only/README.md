@@ -94,6 +94,10 @@ curl -X POST $AGENT_URL/api/projects/<project-key>/evaluate/<decision> \
 | `storageBlobEndpoint` | Blob service URL. |
 | `keyVaultUri` | Key Vault URI, only with `agentSecrets`. |
 | `vnetId` | Virtual network. |
+| `privateEndpointSubnetId` | Subnet of the private endpoints. |
+| `privateDnsZoneIds` | Private DNS zones of the private endpoints. |
+| `environmentId` | Container Apps environment. |
+| `workspaceId` | Log Analytics workspace of the environment. |
 | `environmentIp` | Container Apps environment IP. |
 | `customDomainVerificationId` | Value for the `asuid` TXT record of a custom domain. |
 

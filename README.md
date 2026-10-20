@@ -53,6 +53,7 @@ flowchart TB
 | Agent only | Agent + storage | [agent-only](examples/agent-only) |
 | Internal | Full stack, reachable only from the virtual network | [internal](examples/internal) |
 | Existing virtual network | Full stack in your own subnets | [existing-vnet](examples/existing-vnet) |
+| Existing environment | Agent in the environment of another deployment | [existing-environment](examples/existing-environment) |
 
 ## Requirements
 
@@ -106,6 +107,7 @@ az stack group delete --name gorules --resource-group rg-gorules-prod --action-o
 | `network.appsSubnetId` | none | Existing subnet for Container Apps. See [Existing virtual network](#existing-virtual-network). Can't be changed later. |
 | `network.privateEndpointSubnetId` | none | Existing subnet for the private endpoints. |
 | `network.privateDnsZoneIds` | none | Existing private DNS zones for the private endpoints. |
+| `existingEnvironment` | none | Existing Container Apps environment to deploy into, `{ id, workspaceId }`. See [Existing environment](#existing-environment). |
 | `storage.versioning` | `true` | Keeps previous versions of overwritten blobs. |
 | `containerRegistryId` | none | Azure Container Registry to pull images from with managed identity. |
 | `alertActionGroupId` | none | Action group that gets alert notifications. See [Alerts](#alerts). |
@@ -201,6 +203,32 @@ privateDnsZoneIds: [
 ```
 
 The private endpoints then register in these zones. The PostgreSQL zone is only needed with BRMS. The deployer needs Private DNS Zone Contributor on the zones. Your DNS has to resolve them.
+
+## Existing environment
+
+```bicep
+param existingEnvironment = {
+  id: '/subscriptions/.../managedEnvironments/gorules-prod-env'
+  workspaceId: '/subscriptions/.../workspaces/gorules-prod-logs'
+}
+param network = {
+  privateEndpointSubnetId: '/subscriptions/.../virtualNetworks/gorules-prod-vnet/subnets/private-endpoints'
+  privateDnsZoneIds: [
+    '/subscriptions/.../privateDnsZones/privatelink.blob.core.windows.net'
+    '/subscriptions/.../privateDnsZones/privatelink.vaultcore.azure.net'
+  ]
+}
+```
+
+Several deployments can share one Container Apps environment, e.g. an Agent per team next to a full stack. A deployment with `existingEnvironment` skips the virtual network, NAT gateway, DNS zones, Log Analytics and the environment. It keeps its own apps, identities, storage, Key Vault and alerts. Settings like `allowedCidrBlocks` and `zoneRedundant` still apply to it.
+
+If the environment comes from this template, take the values from the `environmentId`, `workspaceId`, `privateEndpointSubnetId` and `privateDnsZoneIds` outputs of its deployment. Otherwise use the environment's Log Analytics workspace and a subnet and private DNS zones of its virtual network, as in [Existing virtual network](#existing-virtual-network).
+
+- Deploy in the environment's region. It can be in another resource group.
+- The deployer needs Contributor on the environment and Role Based Access Control Administrator on the workspace.
+- `domain` gets a free managed certificate, so the environment must be external. `certificateId` can't be used.
+- With BRMS, `privateDnsZoneIds` also needs the PostgreSQL zone.
+- Delete these deployments before the one that owns the environment.
 
 ## Custom domains
 

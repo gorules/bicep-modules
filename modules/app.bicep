@@ -181,14 +181,15 @@ resource app 'Microsoft.App/containerApps@2026-07-01' = {
   }
 }
 
-resource managedCertificate 'Microsoft.App/managedEnvironments/managedCertificates@2026-07-01' = if (domain != null && certificateUrl == null) {
-  parent: environment
-  name: replace(domain ?? name, '.', '-')
-  location: location
-  tags: tags
-  properties: {
-    subjectName: domain!
-    domainControlValidation: 'CNAME'
+var environmentRef = split(environmentId, '/')
+
+module managedCertificate 'managed-certificate.bicep' = if (domain != null && certificateUrl == null) {
+  scope: resourceGroup(environmentRef[2], environmentRef[4])
+  params: {
+    environmentName: environmentRef[8]
+    domain: domain!
+    location: location
+    tags: tags
   }
   dependsOn: [
     app
@@ -260,10 +261,6 @@ resource alerts 'Microsoft.Insights/metricAlerts@2018-03-01' = [
   }
 ]
 
-resource workspace 'Microsoft.OperationalInsights/workspaces@2026-03-01' existing = {
-  name: last(split(workspaceId, '/'))
-}
-
 resource unhealthy 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
   name: '${name}-unhealthy'
   location: location
@@ -302,13 +299,14 @@ resource unhealthy 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
   }
 }
 
-resource unhealthyReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(workspace.id, unhealthy.id, 'Log Analytics Reader')
-  scope: workspace
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '73c42c96-874c-492b-b04d-ab87d138a893')
+var workspaceRef = split(workspaceId, '/')
+
+module unhealthyReader 'workspace-access.bicep' = {
+  scope: resourceGroup(workspaceRef[2], workspaceRef[4])
+  params: {
+    workspaceName: workspaceRef[8]
+    ruleId: unhealthy.id
     principalId: unhealthy.identity.principalId
-    principalType: 'ServicePrincipal'
   }
 }
 
