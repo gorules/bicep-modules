@@ -25,6 +25,12 @@ param certificateUrl string?
 @description('Environment identity that reads certificateUrl.')
 param certificateIdentityId string?
 
+@description('Log Analytics workspace of the environment.')
+param workspaceId string
+
+@description('Action group that receives alert notifications.')
+param actionGroupId string?
+
 var memoryByCpu = {
   '0.25': '0.5Gi'
   '0.5': '1Gi'
@@ -187,6 +193,123 @@ resource managedCertificate 'Microsoft.App/managedEnvironments/managedCertificat
   dependsOn: [
     app
   ]
+}
+
+var metricAlerts = [
+  {
+    name: 'cpu-high'
+    description: 'Average CPU above 80%'
+    metric: 'CpuPercentage'
+    aggregation: 'Average'
+    threshold: 80
+    dimensions: []
+  }
+  {
+    name: 'memory-high'
+    description: 'Average memory above 80%'
+    metric: 'MemoryPercentage'
+    aggregation: 'Average'
+    threshold: 80
+    dimensions: []
+  }
+  {
+    name: '5xx'
+    description: 'More than 10 server errors a minute'
+    metric: 'Requests'
+    aggregation: 'Total'
+    threshold: 50
+    dimensions: [
+      {
+        name: 'statusCodeCategory'
+        operator: 'Include'
+        values: ['5xx']
+      }
+    ]
+  }
+]
+
+resource alerts 'Microsoft.Insights/metricAlerts@2018-03-01' = [
+  for alert in metricAlerts: {
+    name: '${name}-${alert.name}'
+    location: 'global'
+    tags: tags
+    properties: {
+      description: alert.description
+      severity: 2
+      enabled: true
+      scopes: [app.id]
+      evaluationFrequency: 'PT1M'
+      windowSize: 'PT5M'
+      criteria: {
+        'odata.type': 'Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria'
+        allOf: [
+          {
+            criterionType: 'StaticThresholdCriterion'
+            name: alert.metric
+            metricName: alert.metric
+            timeAggregation: alert.aggregation
+            operator: 'GreaterThan'
+            threshold: alert.threshold
+            dimensions: alert.dimensions
+          }
+        ]
+      }
+      autoMitigate: true
+      actions: actionGroupId == null ? [] : [{ actionGroupId: actionGroupId! }]
+    }
+  }
+]
+
+resource workspace 'Microsoft.OperationalInsights/workspaces@2026-03-01' existing = {
+  name: last(split(workspaceId, '/'))
+}
+
+resource unhealthy 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
+  name: '${name}-unhealthy'
+  location: location
+  tags: tags
+  kind: 'LogAlert'
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {
+    description: 'Replicas failing health checks'
+    severity: 2
+    enabled: true
+    scopes: [workspaceId]
+    evaluationFrequency: 'PT5M'
+    windowSize: 'PT5M'
+    criteria: {
+      allOf: [
+        {
+          query: 'ContainerAppSystemLogs_CL | where ContainerAppName_s == \'${name}\' and Reason_s == \'ProbeFailed\' and Log_s has_any (\'Readiness\', \'Liveness\')'
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          failingPeriods: {
+            numberOfEvaluationPeriods: 1
+            minFailingPeriodsToAlert: 1
+          }
+        }
+      ]
+    }
+    autoMitigate: true
+    // the logs table only exists once the environment has written to it
+    skipQueryValidation: true
+    actions: {
+      actionGroups: actionGroupId == null ? [] : [actionGroupId!]
+    }
+  }
+}
+
+resource unhealthyReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(workspace.id, unhealthy.id, 'Log Analytics Reader')
+  scope: workspace
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '73c42c96-874c-492b-b04d-ab87d138a893')
+    principalId: unhealthy.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
 }
 
 output fqdn string = app.properties.configuration.ingress.fqdn
