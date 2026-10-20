@@ -214,7 +214,7 @@ var metricAlerts = [
   }
   {
     name: '5xx'
-    description: 'More than 10 server errors a minute'
+    description: 'More than 50 server errors in 5 minutes'
     metric: 'Requests'
     aggregation: 'Total'
     threshold: 50
