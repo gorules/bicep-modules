@@ -108,6 +108,7 @@ az stack group delete --name gorules --resource-group rg-gorules-prod --action-o
 | `network.privateDnsZoneIds` | none | Existing private DNS zones for the private endpoints. |
 | `storage.versioning` | `true` | Keeps previous versions of overwritten blobs. |
 | `containerRegistryId` | none | Azure Container Registry to pull images from with managed identity. |
+| `alertActionGroupId` | none | Action group that gets alert notifications. See [Alerts](#alerts). |
 | `brms` | none | BRMS settings, see below. Omit to skip BRMS. |
 | `agent` | none | Agent settings, see below. Omit to skip the Agent. |
 | `database` | `{}` | PostgreSQL settings for BRMS, see below. |
@@ -266,6 +267,17 @@ param aiApiKey = readEnvironmentVariable('ANTHROPIC_API_KEY')
 | `azureResourceName` | none | Required for `azure-openai`. |
 
 Container Apps times out requests after 240 seconds, enough for slow first responses from large models.
+
+## Alerts
+
+BRMS and the Agent get four alerts each, named after the app, e.g. `gorules-prod-brms-cpu-high`. Set `alertActionGroupId` to get notified. Without it the alerts still show in Azure Monitor.
+
+| Alert | Fires when |
+| ----- | ---------- |
+| `cpu-high` | Average CPU is above 80% for 5 minutes. |
+| `memory-high` | Average memory is above 80% for 5 minutes. |
+| `5xx` | More than 50 requests fail with a 5xx status in 5 minutes. |
+| `unhealthy` | A replica fails its health checks. Checked every 5 minutes from the environment logs. |
 
 ## Publishing rules
 

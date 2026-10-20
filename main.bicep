@@ -210,6 +210,9 @@ param storage storageConfig = {}
 @description('Resource ID of an Azure Container Registry to pull images from with managed identity.')
 param containerRegistryId string?
 
+@description('Resource ID of an action group that receives alert notifications. Omit to create the alerts without notifications.')
+param alertActionGroupId string?
+
 @description('GoRules Agent. Omit to skip it.')
 param agent agentConfig?
 
@@ -292,6 +295,9 @@ var errors = concat(domainErrors('brms', brms ?? {}, internal), domainErrors('ag
           : toLower(split(network.?appsSubnetId!, '/')[2]) != toLower(subscription().subscriptionId)
               ? 'the virtual network must be in the deployment subscription'
               : ''
+    alertActionGroupId != null && !(contains(toLower(alertActionGroupId ?? ''), '/providers/microsoft.insights/actiongroups/') && length(split(alertActionGroupId ?? '', '/')) == 9)
+      ? 'alertActionGroupId must be an action group resource ID'
+      : ''
     network.?privateDnsZoneIds != null && network.?appsSubnetId == null
       ? 'network.privateDnsZoneIds needs network.appsSubnetId'
       : ''
@@ -467,6 +473,8 @@ module agentApp 'modules/app.bicep' = if (agent != null) {
       ? null
       : 'https://${agentCertificateRef![8]}${environment().suffixes.keyvaultDns}/secrets/${agentCertificateRef![10]}'
     certificateIdentityId: environmentIdentity.?id
+    workspaceId: environmentModule!.outputs.workspaceId
+    actionGroupId: alertActionGroupId
   }
   dependsOn: [
     agentCertificate
@@ -599,6 +607,8 @@ module brmsApp 'modules/app.bicep' = if (brms != null) {
       ? null
       : 'https://${brmsCertificateRef![8]}${environment().suffixes.keyvaultDns}/secrets/${brmsCertificateRef![10]}'
     certificateIdentityId: environmentIdentity.?id
+    workspaceId: environmentModule!.outputs.workspaceId
+    actionGroupId: alertActionGroupId
   }
   dependsOn: [
     brmsCertificate

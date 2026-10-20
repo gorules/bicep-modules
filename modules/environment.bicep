@@ -58,3 +58,4 @@ output id string = environment.id
 output defaultDomain string = environment.properties.defaultDomain
 output staticIp string = environment.properties.staticIp
 output customDomainVerificationId string = environment.properties.customDomainConfiguration.customDomainVerificationId
+output workspaceId string = logs.id
