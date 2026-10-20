@@ -54,7 +54,7 @@ resource vault 'Microsoft.KeyVault/vaults@2026-05-15' = {
   }
 }
 
-resource license 'Microsoft.KeyVault/vaults/secrets@2026-05-15' = if (brmsReader != null) {
+resource license 'Microsoft.KeyVault/vaults/secrets@2026-05-15' = if (brmsReader != null && !empty(licenseKey)) {
   parent: vault
   name: 'license-key'
   properties: {
@@ -187,12 +187,11 @@ output keyName string = createKey ? key.name : ''
 
 @description('Secrets for the BRMS container, [{ name, keyVaultUrl }].')
 output appSecrets array = concat(
-  brmsReader == null
+  #disable-next-line outputs-should-not-contain-secrets
+  brmsReader == null || empty(licenseKey)
     ? []
-    : [
-        { name: 'LICENSE_KEY', keyVaultUrl: '${vault.properties.vaultUri}secrets/${license.name}' }
-        { name: 'COOKIE_SECRET', keyVaultUrl: '${vault.properties.vaultUri}secrets/${cookie.name}' }
-      ],
+    : [{ name: 'LICENSE_KEY', keyVaultUrl: '${vault.properties.vaultUri}secrets/${license.name}' }],
+  brmsReader == null ? [] : [{ name: 'COOKIE_SECRET', keyVaultUrl: '${vault.properties.vaultUri}secrets/${cookie.name}' }],
   createMasterKey ? [{ name: 'SECRETS_MASTER_KEY', keyVaultUrl: '${vault.properties.vaultUri}secrets/${master.name}' }] : [],
   #disable-next-line outputs-should-not-contain-secrets
   map(items(secrets), item => { name: item.key, keyVaultUrl: '${vault.properties.vaultUri}secrets/${secretName(item.key)}' })
