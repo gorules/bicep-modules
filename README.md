@@ -129,6 +129,8 @@ Both take the same settings, plus the BRMS-only ones marked below.
 | `maxReplicas` | required | Up to 1000. |
 | `cpuTarget` | `60` | Average CPU percentage that triggers scaling. |
 | `allowedCidrBlocks` | required | Client ranges allowed in, e.g. `["0.0.0.0/0"]`. |
+| `domain` | none | Custom domain. See [Custom domains](#custom-domains). |
+| `certificateId` | none | Key Vault certificate for `domain`. Omit for a free managed certificate. |
 | `env` | `[]` | Extra environment variables, `[{ name, value }]`. |
 | `secretsProvider` | `env` | BRMS only. See [Secrets encryption](#secrets-encryption). |
 | `ai` | none | BRMS only. See [AI assistant](#ai-assistant). |
@@ -194,6 +196,37 @@ privateDnsZoneIds: [
 ```
 
 The private endpoints then register in these zones. The PostgreSQL zone is only needed with BRMS. The deployer needs Private DNS Zone Contributor on the zones. Your DNS has to resolve them.
+
+## Custom domains
+
+```bicep
+param brms = {
+  // ...
+  domain: 'brms.example.com'
+}
+```
+
+BRMS and the Agent can each have a custom domain. Before setting `domain`, add two records at your DNS provider:
+
+| Type | Name | Value |
+| ---- | ---- | ----- |
+| CNAME | `brms.example.com` | The app's default host, e.g. `gorules-prod-brms.<unique>.<region>.azurecontainerapps.io` |
+| TXT | `asuid.brms.example.com` | The `customDomainVerificationId` output |
+
+`brmsUrl` shows the default host until `domain` is set. Then set `domain` and deploy again. `brmsUrl` and the links BRMS sends switch to the domain.
+
+Without `certificateId`, Container Apps issues a free certificate and renews it. The certificate authority checks the domain over the internet, so:
+
+- `allowedCidrBlocks` must include `0.0.0.0/0` and the environment can't be internal.
+- The CNAME must point straight at the app, not through a proxy or CDN.
+- The domain must be a subdomain like `brms.example.com`.
+- If the domain has CAA records, one of them must allow `digicert.com`.
+
+The certificate takes about five minutes to issue. A domain moved from `certificateId` to a free certificate has no HTTPS until then. On later deployments what-if shows the certificate and its binding as changed. They stay as they are.
+
+To use your own certificate, import it into Key Vault and set `certificateId` to the vault resource ID followed by `/secrets/<certificate name>`. The vault must use Azure RBAC. The template gives a `<project>-<environment>-env` identity Key Vault Secrets User on the certificate, so the deployer needs Owner or Role Based Access Control Administrator on the vault. Container Apps picks up a renewed certificate within 12 hours. If the vault blocks public access, the environment's virtual network needs a private endpoint to it. Without one the import fails with a permission error.
+
+In an internal environment Azure doesn't check the DNS records. Point the domain at `environmentIp` in your DNS and use `certificateId`.
 
 ## Secrets encryption
 

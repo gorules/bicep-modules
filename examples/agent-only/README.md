@@ -95,6 +95,7 @@ curl -X POST $AGENT_URL/api/projects/<project-key>/evaluate/<decision> \
 | `keyVaultUri` | Key Vault URI, only with `agentSecrets`. |
 | `vnetId` | Virtual network. |
 | `environmentIp` | Container Apps environment IP. |
+| `customDomainVerificationId` | Value for the `asuid` TXT record of a custom domain. |
 
 ## Cleanup
 
