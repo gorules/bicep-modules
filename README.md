@@ -242,7 +242,7 @@ param brmsSecretIds = {
 }
 ```
 
-Secrets can stay in your own Key Vault. Pass the vault resource ID followed by `/secrets/<secret name>` instead of the value. The apps read the latest version from your vault and restart within 30 minutes of a new one. Values and IDs can be mixed, one or the other per variable.
+Secrets can stay in your own Key Vault. Pass the vault resource ID followed by `/secrets/<secret name>` instead of the value. The apps read the latest version from your vault and restart within 30 minutes of a new one. Values and IDs can be mixed, one or the other per variable. Moving a variable between a value and an ID doesn't start a new revision, so restart the app if the value differs.
 
 The vault must use Azure RBAC. The template gives the BRMS or Agent identity Key Vault Secrets User on each secret, so the deployer needs Owner or Role Based Access Control Administrator on the vault. If the vault blocks public access, the environment's virtual network needs a private endpoint to it.
 
