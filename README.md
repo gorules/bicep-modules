@@ -114,9 +114,13 @@ az stack group delete --name gorules --resource-group rg-gorules-prod --action-o
 | `database` | `{}` | PostgreSQL settings for BRMS, see below. |
 | `vault` | `{}` | Key Vault settings, see below. |
 | `licenseKey` | required with BRMS | GoRules license key. Secure. |
+| `licenseKeySecretId` | none | The license key from your own Key Vault, instead of `licenseKey`. See [Existing Key Vault secrets](#existing-key-vault-secrets). |
 | `aiApiKey` | required with `brms.ai` | API key for the AI provider. Secure. |
+| `aiApiKeySecretId` | none | The API key from your own Key Vault, instead of `aiApiKey`. |
 | `brmsSecrets` | `{}` | Extra secret environment variables for BRMS, e.g. `{ SSO_OAUTH2_CLIENT_SECRET: '...' }`. Stored in Key Vault. Secure. |
+| `brmsSecretIds` | `{}` | Like `brmsSecrets`, from your own Key Vault. |
 | `agentSecrets` | `{}` | Extra secret environment variables for the Agent, e.g. `{ RELEASE_ZIP_PASSWORD: '...' }`. Stored in Key Vault. Secure. |
+| `agentSecretIds` | `{}` | Like `agentSecrets`, from your own Key Vault. |
 
 ### BRMS and Agent
 
@@ -228,6 +232,21 @@ The certificate takes about five minutes to issue. A domain moved from `certific
 To use your own certificate, import it into Key Vault and set `certificateId` to the vault resource ID followed by `/secrets/<certificate name>`. The vault must use Azure RBAC. The template gives a `<project>-<environment>-env` identity Key Vault Secrets User on the certificate, so the deployer needs Owner or Role Based Access Control Administrator on the vault. Container Apps picks up a renewed certificate within 12 hours. If the vault blocks public access, the environment's virtual network needs a private endpoint to it. Without one the import fails with a permission error.
 
 In an internal environment Azure doesn't check the DNS records. Point the domain at `environmentIp` in your DNS and use `certificateId`.
+
+## Existing Key Vault secrets
+
+```bicep
+param licenseKeySecretId = '/subscriptions/.../vaults/kv-corp/secrets/gorules-license-key'
+param brmsSecretIds = {
+  SSO_OAUTH2_CLIENT_SECRET: '/subscriptions/.../vaults/kv-corp/secrets/sso-client-secret'
+}
+```
+
+Secrets can stay in your own Key Vault. Pass the vault resource ID followed by `/secrets/<secret name>` instead of the value. The apps read the latest version from your vault and restart within 30 minutes of a new one. Values and IDs can be mixed, one or the other per variable. Moving a variable between a value and an ID doesn't start a new revision, so restart the app if the value differs.
+
+The vault must use Azure RBAC. The template gives the BRMS or Agent identity Key Vault Secrets User on each secret, so the deployer needs Owner or Role Based Access Control Administrator on the vault. If the vault blocks public access, the environment's virtual network needs a private endpoint to it.
+
+To copy a secret into the template's vault at deployment time instead, use `az.getSecret()` in the parameters file. Your vault then needs `enabledForTemplateDeployment`.
 
 ## Secrets encryption
 

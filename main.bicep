@@ -239,6 +239,20 @@ param brmsSecrets object = {}
 @description('Extra secret environment variables for the Agent, e.g. { RELEASE_ZIP_PASSWORD: \'...\' }.')
 param agentSecrets object = {}
 
+@description('Existing Key Vault secret with the license key, instead of licenseKey, e.g. <vault ID>/secrets/<secret name>.')
+param licenseKeySecretId string?
+
+@description('Existing Key Vault secret with the AI provider API key, instead of aiApiKey.')
+param aiApiKeySecretId string?
+
+@description('Like brmsSecrets, with Key Vault secret resource IDs as values.')
+#disable-next-line secure-secrets-in-params
+param brmsSecretIds { *: string } = {}
+
+@description('Like agentSecrets, with Key Vault secret resource IDs as values.')
+#disable-next-line secure-secrets-in-params
+param agentSecretIds { *: string } = {}
+
 var prefix = '${projectName}-${environmentName}'
 
 var validName = empty(filter(
@@ -246,11 +260,20 @@ var validName = empty(filter(
   i => !contains('abcdefghijklmnopqrstuvwxyz0123456789-', substring(prefix, i, 1))
 )) && contains('abcdefghijklmnopqrstuvwxyz', first(prefix)) && !endsWith(prefix, '-') && !contains(prefix, '--')
 
+func isSecretId(id string) bool =>
+  contains(toLower(id), '/providers/microsoft.keyvault/vaults/') && contains(id, '/secrets/') && length(split(id, '/')) == 11
+
+func secretUrl(id string) string =>
+  'https://${split(id, '/')[8]}${environment().suffixes.keyvaultDns}/secrets/${split(id, '/')[10]}'
+
+func appSecrets(refs array, app string) array =>
+  map(filter(refs, ref => ref.app == app), ref => { name: ref.name, keyVaultUrl: secretUrl(ref.id) })
+
 func domainErrors(name string, app object, internal bool) string[] =>
   filter(
     [
       app.?certificateId != null && app.?domain == null ? '${name}.certificateId needs ${name}.domain' : ''
-      app.?certificateId != null && !(contains(toLower(app.?certificateId ?? ''), '/providers/microsoft.keyvault/vaults/') && contains(app.?certificateId ?? '', '/secrets/') && length(split(app.?certificateId ?? '', '/')) == 11)
+      app.?certificateId != null && !isSecretId(app.?certificateId ?? '')
         ? '${name}.certificateId must be a Key Vault secret resource ID'
         : ''
       app.?domain != null && app.?certificateId == null && internal
@@ -263,7 +286,26 @@ func domainErrors(name string, app object, internal bool) string[] =>
     error => !empty(error)
   )
 
-var errors = concat(domainErrors('brms', brms ?? {}, internal), domainErrors('agent', agent ?? {}, internal), filter(
+var secretRefs = concat(
+  brms == null
+    ? []
+    : concat(
+        licenseKeySecretId == null
+          ? []
+          : [{ param: 'licenseKeySecretId', name: 'LICENSE_KEY', id: licenseKeySecretId!, app: 'brms' }],
+        brms.?ai == null || aiApiKeySecretId == null
+          ? []
+          : [{ param: 'aiApiKeySecretId', name: 'LLM_API_KEY', id: aiApiKeySecretId!, app: 'brms' }],
+        map(items(brmsSecretIds), item => { param: 'brmsSecretIds.${item.key}', name: item.key, id: item.value, app: 'brms' })
+      ),
+  agent == null
+    ? []
+    : map(items(agentSecretIds), item => { param: 'agentSecretIds.${item.key}', name: item.key, id: item.value, app: 'agent' })
+)
+
+var secretIdErrors = map(filter(secretRefs, ref => !isSecretId(ref.id)), ref => '${ref.param} must be a Key Vault secret resource ID')
+
+var errors = concat(domainErrors('brms', brms ?? {}, internal), domainErrors('agent', agent ?? {}, internal), secretIdErrors, filter(
   [
     length(prefix) > 26 ? 'projectName and environmentName together must be at most 25 characters' : ''
     !validName
@@ -343,8 +385,12 @@ var agentPrincipal = agent == null ? [] : [{ id: agentIdentity.id, principalId: 
 // Secure values are checked here, not in namePrefix, so what-if can resolve resource names.
 var secretErrors = filter(
   [
-    empty(licenseKey) ? 'licenseKey is required with BRMS' : ''
-    brms.?ai != null && empty(aiApiKey) ? 'aiApiKey is required with brms.ai' : ''
+    empty(licenseKey) == (licenseKeySecretId == null)
+      ? 'exactly one of licenseKey and licenseKeySecretId is required with BRMS'
+      : ''
+    brms.?ai != null && empty(aiApiKey) == (aiApiKeySecretId == null)
+      ? 'exactly one of aiApiKey and aiApiKeySecretId is required with brms.ai'
+      : ''
   ],
   error => !empty(error)
 )
@@ -392,9 +438,20 @@ resource environmentIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2
   tags: allTags
 }
 
+module secretAccess 'modules/secret-access.bicep' = [
+  for ref in secretRefs: {
+    scope: resourceGroup(split(ref.id, '/')[2], split(ref.id, '/')[4])
+    params: {
+      vaultName: split(ref.id, '/')[8]
+      secretName: split(ref.id, '/')[10]
+      principalId: ref.app == 'brms' ? brmsIdentity!.properties.principalId : agentIdentity!.properties.principalId
+    }
+  }
+]
+
 var brmsCertificateRef = brms.?certificateId == null ? null : split(brms.?certificateId!, '/')
 
-module brmsCertificate 'modules/certificate-access.bicep' = if (brmsCertificateRef != null) {
+module brmsCertificate 'modules/secret-access.bicep' = if (brmsCertificateRef != null) {
   scope: resourceGroup(brmsCertificateRef![2], brmsCertificateRef![4])
   params: {
     vaultName: brmsCertificateRef![8]
@@ -405,7 +462,7 @@ module brmsCertificate 'modules/certificate-access.bicep' = if (brmsCertificateR
 
 var agentCertificateRef = agent.?certificateId == null ? null : split(agent.?certificateId!, '/')
 
-module agentCertificate 'modules/certificate-access.bicep' = if (agentCertificateRef != null) {
+module agentCertificate 'modules/secret-access.bicep' = if (agentCertificateRef != null) {
   scope: resourceGroup(agentCertificateRef![2], agentCertificateRef![4])
   params: {
     vaultName: agentCertificateRef![8]
@@ -467,17 +524,16 @@ module agentApp 'modules/app.bicep' = if (agent != null) {
       ],
       agent.?env ?? []
     )
-    secrets: vaultModule.?outputs.agentAppSecrets ?? []
+    secrets: concat(vaultModule.?outputs.agentAppSecrets ?? [], appSecrets(secretRefs, 'agent'))
     domain: agent.?domain
-    certificateUrl: agentCertificateRef == null
-      ? null
-      : 'https://${agentCertificateRef![8]}${environment().suffixes.keyvaultDns}/secrets/${agentCertificateRef![10]}'
+    certificateUrl: agent.?certificateId == null ? null : secretUrl(agent.?certificateId!)
     certificateIdentityId: environmentIdentity.?id
     workspaceId: environmentModule!.outputs.workspaceId
     actionGroupId: alertActionGroupId
   }
   dependsOn: [
     agentCertificate
+    secretAccess
   ]
 }
 
@@ -503,7 +559,7 @@ module vaultModule 'modules/vault.bicep' = if (brms != null || (agent != null &&
       ? {}
       : union(
           brmsSecrets,
-          ai == null
+          ai == null || aiApiKeySecretId != null
             ? {}
             : {
                 LLM_API_KEY: aiApiKey
@@ -601,17 +657,16 @@ module brmsApp 'modules/app.bicep' = if (brms != null) {
           ),
       brms.?env ?? []
     )
-    secrets: vaultModule!.outputs.appSecrets
+    secrets: concat(vaultModule!.outputs.appSecrets, appSecrets(secretRefs, 'brms'))
     domain: brms.?domain
-    certificateUrl: brmsCertificateRef == null
-      ? null
-      : 'https://${brmsCertificateRef![8]}${environment().suffixes.keyvaultDns}/secrets/${brmsCertificateRef![10]}'
+    certificateUrl: brms.?certificateId == null ? null : secretUrl(brms.?certificateId!)
     certificateIdentityId: environmentIdentity.?id
     workspaceId: environmentModule!.outputs.workspaceId
     actionGroupId: alertActionGroupId
   }
   dependsOn: [
     brmsCertificate
+    secretAccess
   ]
 }
 
