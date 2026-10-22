@@ -48,7 +48,7 @@ resource nat 'Microsoft.Network/natGateways@2026-01-01' = if (natGateway) {
   }
 }
 
-resource vnet 'Microsoft.Network/virtualNetworks@2026-01-01' = if (appsSubnetId == null) {
+resource vnet 'Microsoft.Network/virtualNetworks@2026-01-01' = if (privateEndpointSubnetId == null) {
   name: '${namePrefix}-vnet'
   location: location
   tags: tags
@@ -84,7 +84,7 @@ resource vnet 'Microsoft.Network/virtualNetworks@2026-01-01' = if (appsSubnetId 
   }
 }
 
-var vnetId = appsSubnetId == null ? vnet.id : split(appsSubnetId!, '/subnets/')[0]
+var vnetId = privateEndpointSubnetId == null ? vnet.id : split(privateEndpointSubnetId!, '/subnets/')[0]
 
 resource zones 'Microsoft.Network/privateDnsZones@2024-06-01' = [
   for zone in createZones ? privateDnsZones : []: {

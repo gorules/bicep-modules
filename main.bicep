@@ -45,6 +45,15 @@ type networkConfig = {
 }
 
 @sealed()
+type existingEnvironmentConfig = {
+  @description('Resource ID of the Container Apps environment.')
+  id: string
+
+  @description('Resource ID of the Log Analytics workspace the environment sends logs to.')
+  workspaceId: string
+}
+
+@sealed()
 type storageConfig = {
   @description('Keep previous versions of overwritten blobs. Default true.')
   versioning: bool?
@@ -205,6 +214,9 @@ param zoneRedundant bool = true
 
 param network networkConfig = {}
 
+@description('Deploy into an existing Container Apps environment instead of creating one. Needs network.privateEndpointSubnetId and network.privateDnsZoneIds from its virtual network.')
+param existingEnvironment existingEnvironmentConfig?
+
 param storage storageConfig = {}
 
 @description('Resource ID of an Azure Container Registry to pull images from with managed identity.')
@@ -324,8 +336,23 @@ var errors = concat(domainErrors('brms', brms ?? {}, internal), domainErrors('ag
     (database.?highAvailability ?? false) && startsWith(database.?sku ?? 'Standard_B2s', 'Standard_B')
       ? 'database.highAvailability is not available on Burstable sizes'
       : ''
-    (network.?appsSubnetId == null) != (network.?privateEndpointSubnetId == null)
+    existingEnvironment == null && (network.?appsSubnetId == null) != (network.?privateEndpointSubnetId == null)
       ? 'network.appsSubnetId and network.privateEndpointSubnetId must be set together'
+      : ''
+    existingEnvironment != null && !(contains(toLower(existingEnvironment.?id ?? ''), '/providers/microsoft.app/managedenvironments/') && length(split(existingEnvironment.?id ?? '', '/')) == 9)
+      ? 'existingEnvironment.id must be a Container Apps environment resource ID'
+      : ''
+    existingEnvironment != null && !(contains(toLower(existingEnvironment.?workspaceId ?? ''), '/providers/microsoft.operationalinsights/workspaces/') && length(split(existingEnvironment.?workspaceId ?? '', '/')) == 9)
+      ? 'existingEnvironment.workspaceId must be a Log Analytics workspace resource ID'
+      : ''
+    existingEnvironment != null && (network.?privateEndpointSubnetId == null || network.?privateDnsZoneIds == null)
+      ? 'existingEnvironment needs network.privateEndpointSubnetId and network.privateDnsZoneIds'
+      : ''
+    existingEnvironment != null && (network.?appsSubnetId != null || network.?addressPrefix != null || network.?natGateway != null || network.?internal != null)
+      ? 'network.appsSubnetId, addressPrefix, natGateway and internal can\'t be used with existingEnvironment'
+      : ''
+    existingEnvironment != null && (brms.?certificateId != null || agent.?certificateId != null)
+      ? 'certificateId can\'t be used with existingEnvironment'
       : ''
     network.?appsSubnetId != null && (network.?addressPrefix != null || (network.?natGateway ?? false))
       ? 'network.addressPrefix and network.natGateway can\'t be used with existing subnets'
@@ -340,8 +367,8 @@ var errors = concat(domainErrors('brms', brms ?? {}, internal), domainErrors('ag
     alertActionGroupId != null && !(contains(toLower(alertActionGroupId ?? ''), '/providers/microsoft.insights/actiongroups/') && length(split(alertActionGroupId ?? '', '/')) == 9)
       ? 'alertActionGroupId must be an action group resource ID'
       : ''
-    network.?privateDnsZoneIds != null && network.?appsSubnetId == null
-      ? 'network.privateDnsZoneIds needs network.appsSubnetId'
+    network.?privateDnsZoneIds != null && network.?appsSubnetId == null && existingEnvironment == null
+      ? 'network.privateDnsZoneIds needs network.appsSubnetId or existingEnvironment'
       : ''
     network.?privateDnsZoneIds != null && !empty(missingZones)
       ? 'network.privateDnsZoneIds is missing ${join(missingZones, ', ')}'
@@ -471,7 +498,7 @@ module agentCertificate 'modules/secret-access.bicep' = if (agentCertificateRef 
   }
 }
 
-module environmentModule 'modules/environment.bicep' = if (deployApps) {
+module environmentModule 'modules/environment.bicep' = if (deployApps && existingEnvironment == null) {
   params: {
     namePrefix: namePrefix
     location: location
@@ -482,6 +509,19 @@ module environmentModule 'modules/environment.bicep' = if (deployApps) {
     identityId: environmentIdentity.?id
   }
 }
+
+var environmentRef = split(existingEnvironment.?id ?? '', '/')
+
+resource currentEnvironment 'Microsoft.App/managedEnvironments@2026-07-01' existing = if (existingEnvironment != null) {
+  scope: resourceGroup(environmentRef[2], environmentRef[4])
+  name: environmentRef[8]
+}
+
+var environmentId = existingEnvironment == null ? environmentModule!.outputs.id : existingEnvironment!.id
+var workspaceId = existingEnvironment == null ? environmentModule!.outputs.workspaceId : existingEnvironment!.workspaceId
+var defaultDomain = existingEnvironment == null
+  ? environmentModule!.outputs.defaultDomain
+  : currentEnvironment!.properties.defaultDomain
 
 module environmentDns 'modules/private-zone.bicep' = if (deployApps && internal) {
   params: {
@@ -505,7 +545,7 @@ module agentApp 'modules/app.bicep' = if (agent != null) {
     name: '${namePrefix}-agent'
     location: location
     tags: allTags
-    environmentId: environmentModule!.outputs.id
+    environmentId: environmentId
     identityId: agentIdentity.id
     identityClientId: agentIdentity!.properties.clientId
     registryServer: registryAccess.?outputs.loginServer
@@ -528,7 +568,7 @@ module agentApp 'modules/app.bicep' = if (agent != null) {
     domain: agent.?domain
     certificateUrl: agent.?certificateId == null ? null : secretUrl(agent.?certificateId!)
     certificateIdentityId: environmentIdentity.?id
-    workspaceId: environmentModule!.outputs.workspaceId
+    workspaceId: workspaceId
     actionGroupId: alertActionGroupId
   }
   dependsOn: [
@@ -608,7 +648,7 @@ module brmsApp 'modules/app.bicep' = if (brms != null) {
     name: brmsName
     location: location
     tags: allTags
-    environmentId: environmentModule!.outputs.id
+    environmentId: environmentId
     identityId: brmsIdentity.id
     identityClientId: brmsIdentity!.properties.clientId
     registryServer: registryAccess.?outputs.loginServer
@@ -621,7 +661,7 @@ module brmsApp 'modules/app.bicep' = if (brms != null) {
     allowedCidrBlocks: brms!.allowedCidrBlocks
     env: concat(
       [
-        { name: 'APP_URL', value: 'https://${brms.?domain ?? '${brmsName}.${environmentModule!.outputs.defaultDomain}'}' }
+        { name: 'APP_URL', value: 'https://${brms.?domain ?? '${brmsName}.${defaultDomain}'}' }
         { name: 'DB_HOST', value: databaseModule!.outputs.host }
         { name: 'DB_PORT', value: '5432' }
         { name: 'DB_NAME', value: databaseModule!.outputs.name }
@@ -661,7 +701,7 @@ module brmsApp 'modules/app.bicep' = if (brms != null) {
     domain: brms.?domain
     certificateUrl: brms.?certificateId == null ? null : secretUrl(brms.?certificateId!)
     certificateIdentityId: environmentIdentity.?id
-    workspaceId: environmentModule!.outputs.workspaceId
+    workspaceId: workspaceId
     actionGroupId: alertActionGroupId
   }
   dependsOn: [
@@ -680,5 +720,15 @@ output storageAccountName string? = storageModule.?outputs.accountName
 output storageContainerName string? = storageModule.?outputs.containerName
 output storageBlobEndpoint string? = storageModule.?outputs.blobEndpoint
 output vnetId string? = networkModule.?outputs.vnetId
-output environmentIp string? = environmentModule.?outputs.staticIp
-output customDomainVerificationId string? = environmentModule.?outputs.customDomainVerificationId
+output privateEndpointSubnetId string? = networkModule.?outputs.privateEndpointSubnetId
+output privateDnsZoneIds string[]? = deployApps ? map(items(networkModule!.outputs.privateDnsZoneIds), zone => zone.value) : null
+output environmentId string? = deployApps ? environmentId : null
+output workspaceId string? = deployApps ? workspaceId : null
+output environmentIp string? = !deployApps
+  ? null
+  : existingEnvironment == null ? environmentModule!.outputs.staticIp : currentEnvironment!.properties.staticIp
+output customDomainVerificationId string? = !deployApps
+  ? null
+  : existingEnvironment == null
+      ? environmentModule!.outputs.customDomainVerificationId
+      : currentEnvironment!.properties.customDomainConfiguration.customDomainVerificationId

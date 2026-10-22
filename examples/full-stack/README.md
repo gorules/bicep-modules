@@ -81,6 +81,10 @@ curl -X POST <agentUrl>/api/projects/<project-key>/evaluate/<decision> \
 | `storageContainerName` | Container BRMS publishes to, `rules`. |
 | `storageBlobEndpoint` | Blob service URL for the BRMS environment deployment. |
 | `vnetId` | Virtual network. |
+| `privateEndpointSubnetId` | Subnet of the private endpoints. |
+| `privateDnsZoneIds` | Private DNS zones of the private endpoints. |
+| `environmentId` | Container Apps environment. |
+| `workspaceId` | Log Analytics workspace of the environment. |
 | `environmentIp` | Container Apps environment IP. |
 | `customDomainVerificationId` | Value for the `asuid` TXT record of a custom domain. |
 
