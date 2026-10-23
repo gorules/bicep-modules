@@ -109,6 +109,7 @@ az stack group delete --name gorules --resource-group rg-gorules-prod --action-o
 | `network.privateDnsZoneIds` | none | Existing private DNS zones for the private endpoints. |
 | `existingEnvironment` | none | Existing Container Apps environment to deploy into, `{ id, workspaceId }`. See [Existing environment](#existing-environment). |
 | `storage.versioning` | `true` | Keeps previous versions of overwritten blobs. |
+| `storage.containerId` | none | Existing blob container instead of a new storage account. See [Existing storage account](#existing-storage-account). |
 | `containerRegistryId` | none | Azure Container Registry to pull images from with managed identity. |
 | `alertActionGroupId` | none | Action group that gets alert notifications. See [Alerts](#alerts). |
 | `brms` | none | BRMS settings, see below. Omit to skip BRMS. |
@@ -140,6 +141,7 @@ Both take the same settings, plus the BRMS-only ones marked below.
 | `certificateId` | none | Key Vault certificate for `domain`. Omit for a free managed certificate. |
 | `env` | `[]` | Extra environment variables, `[{ name, value }]`. |
 | `secretsProvider` | `env` | BRMS only. See [Secrets encryption](#secrets-encryption). |
+| `secretsKeyId` | none | BRMS only. Existing Key Vault key for `azure-keyvault`. |
 | `ai` | none | BRMS only. See [AI assistant](#ai-assistant). |
 
 ### Database
@@ -230,6 +232,19 @@ If the environment comes from this template, take the values from the `environme
 - With BRMS, `privateDnsZoneIds` also needs the PostgreSQL zone.
 - Delete these deployments before the one that owns the environment.
 
+## Existing storage account
+
+```bicep
+param storage = {
+  containerId: '/subscriptions/.../storageAccounts/stcorprules/blobServices/default/containers/rules'
+}
+```
+
+BRMS and the Agent can use a blob container you already have instead of a new storage account. The template gives the Agent Storage Blob Data Reader and BRMS Storage Blob Data Contributor on the container, so the deployer needs Owner on the account.
+
+- When the template creates the private DNS zones, it also adds a private endpoint to the account. With `network.privateDnsZoneIds` or `existingEnvironment` it doesn't, so the account must already resolve to a private endpoint through those zones or allow public access.
+- Switching a deployment to `containerId` deletes the storage account the template created. Publish the releases again afterwards.
+
 ## Custom domains
 
 ```bicep
@@ -283,10 +298,12 @@ BRMS encrypts secrets stored in rules with a key that the template creates:
 - `env` (default): a random master key, generated once and stored in Key Vault.
 - `azure-keyvault`: an RSA key in Key Vault. The key never leaves the vault.
 
+To use your own key, set `brms.secretsKeyId` to the vault resource ID followed by `/keys/<key name>`. It must be an RSA key that allows wrap and unwrap, in a vault that uses Azure RBAC. The template gives BRMS Key Vault Crypto Service Encryption User on the key, so the deployer needs Owner or Role Based Access Control Administrator on the vault. If the vault blocks public access, the environment's virtual network needs a private endpoint to it.
+
 > [!CAUTION]
 > **Never delete or rotate the key.** Deleting the master key secret or the RSA key makes all BRMS secrets unreadable. BRMS always uses the newest RSA key version, so rotating it breaks secrets encrypted with an older one. Keep purge protection on in production.
 >
-> **Choose `secretsProvider` before first use.** Switching it later makes existing BRMS secrets unreadable. The stack also deletes the old master key secret.
+> **Choose `secretsProvider` and `secretsKeyId` before first use.** Switching them later makes existing BRMS secrets unreadable. The stack also deletes the old master key secret.
 
 The cookie secret and master key are generated on the first deployment only. Later deployments keep them.
 
