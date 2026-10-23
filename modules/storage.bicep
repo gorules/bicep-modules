@@ -47,7 +47,8 @@ resource container 'Microsoft.Storage/storageAccounts/blobServices/containers@20
 }
 
 resource endpoint 'Microsoft.Network/privateEndpoints@2026-01-01' = if (containerId == null || existingEndpoint) {
-  name: '${namePrefix}-blob-pe'
+  // an endpoint can't change its target, so one per account
+  name: containerId == null ? '${namePrefix}-blob-pe' : '${namePrefix}-${ref[8]}-pe'
   location: location
   tags: tags
   properties: {
