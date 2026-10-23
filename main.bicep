@@ -57,6 +57,9 @@ type existingEnvironmentConfig = {
 type storageConfig = {
   @description('Keep previous versions of overwritten blobs. Default true.')
   versioning: bool?
+
+  @description('Existing blob container to use instead of creating a storage account, e.g. <account ID>/blobServices/default/containers/rules.')
+  containerId: string?
 }
 
 @sealed()
@@ -187,6 +190,9 @@ type brmsConfig = {
   @description('Key that encrypts secrets stored in BRMS: a generated master key (env) or a Key Vault RSA key. Default env.')
   secretsProvider: ('env' | 'azure-keyvault')?
 
+  @description('Existing Key Vault RSA key for azure-keyvault, e.g. <vault ID>/keys/<key name>. Omit to create one.')
+  secretsKeyId: string?
+
   @description('AI assistant. Omit to turn it off.')
   ai: aiConfig?
 
@@ -272,8 +278,8 @@ var validName = empty(filter(
   i => !contains('abcdefghijklmnopqrstuvwxyz0123456789-', substring(prefix, i, 1))
 )) && contains('abcdefghijklmnopqrstuvwxyz', first(prefix)) && !endsWith(prefix, '-') && !contains(prefix, '--')
 
-func isSecretId(id string) bool =>
-  contains(toLower(id), '/providers/microsoft.keyvault/vaults/') && contains(id, '/secrets/') && length(split(id, '/')) == 11
+func isVaultItemId(id string, kind string) bool =>
+  contains(toLower(id), '/providers/microsoft.keyvault/vaults/') && contains(id, '/${kind}/') && length(split(id, '/')) == 11
 
 func secretUrl(id string) string =>
   'https://${split(id, '/')[8]}${environment().suffixes.keyvaultDns}/secrets/${split(id, '/')[10]}'
@@ -285,7 +291,7 @@ func domainErrors(name string, app object, internal bool) string[] =>
   filter(
     [
       app.?certificateId != null && app.?domain == null ? '${name}.certificateId needs ${name}.domain' : ''
-      app.?certificateId != null && !isSecretId(app.?certificateId ?? '')
+      app.?certificateId != null && !isVaultItemId(app.?certificateId ?? '', 'secrets')
         ? '${name}.certificateId must be a Key Vault secret resource ID'
         : ''
       app.?domain != null && app.?certificateId == null && internal
@@ -315,7 +321,7 @@ var secretRefs = concat(
     : map(items(agentSecretIds), item => { param: 'agentSecretIds.${item.key}', name: item.key, id: item.value, app: 'agent' })
 )
 
-var secretIdErrors = map(filter(secretRefs, ref => !isSecretId(ref.id)), ref => '${ref.param} must be a Key Vault secret resource ID')
+var secretIdErrors = map(filter(secretRefs, ref => !isVaultItemId(ref.id, 'secrets')), ref => '${ref.param} must be a Key Vault secret resource ID')
 
 var errors = concat(domainErrors('brms', brms ?? {}, internal), domainErrors('agent', agent ?? {}, internal), secretIdErrors, filter(
   [
@@ -364,6 +370,18 @@ var errors = concat(domainErrors('brms', brms ?? {}, internal), domainErrors('ag
           : toLower(split(network.?appsSubnetId!, '/')[2]) != toLower(subscription().subscriptionId)
               ? 'the virtual network must be in the deployment subscription'
               : ''
+    storage.?containerId != null && !(contains(toLower(storage.?containerId ?? ''), '/providers/microsoft.storage/storageaccounts/') && contains(toLower(storage.?containerId ?? ''), '/blobservices/default/containers/') && length(split(storage.?containerId ?? '', '/')) == 13)
+      ? 'storage.containerId must be a blob container resource ID'
+      : ''
+    storage.?containerId != null && storage.?versioning != null
+      ? 'storage.versioning can\'t be used with storage.containerId'
+      : ''
+    brms.?secretsKeyId != null && !isVaultItemId(brms.?secretsKeyId ?? '', 'keys')
+      ? 'brms.secretsKeyId must be a Key Vault key resource ID'
+      : ''
+    brms.?secretsKeyId != null && brms.?secretsProvider != 'azure-keyvault'
+      ? 'brms.secretsKeyId needs brms.secretsProvider azure-keyvault'
+      : ''
     alertActionGroupId != null && !(contains(toLower(alertActionGroupId ?? ''), '/providers/microsoft.insights/actiongroups/') && length(split(alertActionGroupId ?? '', '/')) == 9)
       ? 'alertActionGroupId must be an action group resource ID'
       : ''
@@ -454,6 +472,22 @@ module storageModule 'modules/storage.bicep' = if (deployApps) {
     zoneRedundant: zoneRedundant
     privateEndpointSubnetId: networkModule!.outputs.privateEndpointSubnetId
     privateDnsZoneId: networkModule!.outputs.privateDnsZoneIds[blobDnsZone]
+    containerId: storage.?containerId
+    // shared zones may already hold a record for the account
+    existingEndpoint: network.?privateDnsZoneIds == null
+  }
+}
+
+var containerRef = split(storage.?containerId ?? '', '/')
+
+module storageAccess 'modules/storage-access.bicep' = if (deployApps) {
+  scope: resourceGroup(
+    storage.?containerId == null ? subscription().subscriptionId : containerRef[2],
+    storage.?containerId == null ? resourceGroup().name : containerRef[4]
+  )
+  params: {
+    accountName: storageModule!.outputs.accountName
+    containerName: storageModule!.outputs.containerName
     readers: agentPrincipal
     writers: brmsPrincipal
   }
@@ -574,6 +608,7 @@ module agentApp 'modules/app.bicep' = if (agent != null) {
   dependsOn: [
     agentCertificate
     secretAccess
+    storageAccess
   ]
 }
 
@@ -592,7 +627,7 @@ module vaultModule 'modules/vault.bicep' = if (brms != null || (agent != null &&
     purgeProtection: vault.?purgeProtection ?? true
     brmsReader: first(brmsPrincipal)
     agentReader: first(agentPrincipal)
-    createKey: brms != null && secretsProvider == 'azure-keyvault'
+    createKey: brms != null && secretsProvider == 'azure-keyvault' && brms.?secretsKeyId == null
     createMasterKey: brms != null && secretsProvider == 'env'
     licenseKey: licenseKey
     secrets: brms == null
@@ -606,6 +641,17 @@ module vaultModule 'modules/vault.bicep' = if (brms != null || (agent != null &&
               }
         )
     agentSecrets: agent == null ? {} : agentSecrets
+  }
+}
+
+var secretsKeyRef = split(brms.?secretsKeyId ?? '', '/')
+
+module secretsKeyAccess 'modules/key-access.bicep' = if (brms.?secretsKeyId != null) {
+  scope: resourceGroup(secretsKeyRef[2], secretsKeyRef[4])
+  params: {
+    vaultName: secretsKeyRef[8]
+    keyName: secretsKeyRef[10]
+    principalId: brmsIdentity!.properties.principalId
   }
 }
 
@@ -671,8 +717,16 @@ module brmsApp 'modules/app.bicep' = if (brms != null) {
       ],
       secretsProvider == 'azure-keyvault'
         ? [
-            { name: 'SECRETS_AZURE_KEYVAULT_URL', value: vaultModule!.outputs.uri }
-            { name: 'SECRETS_AZURE_KEYVAULT_KEY_NAME', value: vaultModule!.outputs.keyName }
+            {
+              name: 'SECRETS_AZURE_KEYVAULT_URL'
+              value: brms.?secretsKeyId == null
+                ? vaultModule!.outputs.uri
+                : 'https://${secretsKeyRef[8]}${environment().suffixes.keyvaultDns}/'
+            }
+            {
+              name: 'SECRETS_AZURE_KEYVAULT_KEY_NAME'
+              value: brms.?secretsKeyId == null ? vaultModule!.outputs.keyName : secretsKeyRef[10]
+            }
           ]
         : [],
       ai == null
@@ -707,6 +761,8 @@ module brmsApp 'modules/app.bicep' = if (brms != null) {
   dependsOn: [
     brmsCertificate
     secretAccess
+    storageAccess
+    secretsKeyAccess
   ]
 }
 
