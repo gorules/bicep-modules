@@ -6,13 +6,15 @@ param zoneRedundant bool
 param privateEndpointSubnetId string
 param privateDnsZoneId string
 
-@description('Identities with read access to the rules container, [{ id, principalId }].')
-param readers array = []
+@description('Existing blob container. Omit to create an account.')
+param containerId string?
 
-@description('Identities with read and write access to the rules container, [{ id, principalId }].')
-param writers array = []
+@description('Add a private endpoint to the account of containerId.')
+param existingEndpoint bool = false
 
-resource account 'Microsoft.Storage/storageAccounts@2026-06-01' = {
+var ref = split(containerId ?? '', '/')
+
+resource account 'Microsoft.Storage/storageAccounts@2026-06-01' = if (containerId == null) {
   name: 'st${uniqueString(resourceGroup().id, namePrefix)}'
   location: location
   tags: tags
@@ -31,7 +33,7 @@ resource account 'Microsoft.Storage/storageAccounts@2026-06-01' = {
   }
 }
 
-resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2026-06-01' = {
+resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2026-06-01' = if (containerId == null) {
   parent: account
   name: 'default'
   properties: {
@@ -39,13 +41,14 @@ resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2026-06-01'
   }
 }
 
-resource container 'Microsoft.Storage/storageAccounts/blobServices/containers@2026-06-01' = {
+resource container 'Microsoft.Storage/storageAccounts/blobServices/containers@2026-06-01' = if (containerId == null) {
   parent: blobService
   name: 'rules'
 }
 
-resource endpoint 'Microsoft.Network/privateEndpoints@2026-01-01' = {
-  name: '${namePrefix}-blob-pe'
+resource endpoint 'Microsoft.Network/privateEndpoints@2026-01-01' = if (containerId == null || existingEndpoint) {
+  // an endpoint can't change its target, so one per account
+  name: containerId == null ? '${namePrefix}-blob-pe' : '${namePrefix}-${ref[8]}-pe'
   location: location
   tags: tags
   properties: {
@@ -56,7 +59,7 @@ resource endpoint 'Microsoft.Network/privateEndpoints@2026-01-01' = {
       {
         name: 'blob'
         properties: {
-          privateLinkServiceId: account.id
+          privateLinkServiceId: containerId == null ? account.id : join(take(ref, 9), '/')
           groupIds: [
             'blob'
           ]
@@ -66,7 +69,7 @@ resource endpoint 'Microsoft.Network/privateEndpoints@2026-01-01' = {
   }
 }
 
-resource endpointDns 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2026-01-01' = {
+resource endpointDns 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2026-01-01' = if (containerId == null || existingEndpoint) {
   parent: endpoint
   name: 'default'
   properties: {
@@ -81,29 +84,8 @@ resource endpointDns 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@20
   }
 }
 
-var roles = concat(
-  map(readers, identity => {
-    identity: identity
-    roleId: '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1'
-  }),
-  map(writers, identity => {
-    identity: identity
-    roleId: 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
-  })
-)
-
-resource access 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
-  for role in roles: {
-    name: guid(container.id, role.identity.id, role.roleId)
-    scope: container
-    properties: {
-      roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', role.roleId)
-      principalId: role.identity.principalId
-      principalType: 'ServicePrincipal'
-    }
-  }
-]
-
-output accountName string = account.name
-output containerName string = container.name
-output blobEndpoint string = account.properties.primaryEndpoints.blob
+output accountName string = containerId == null ? account.name : ref[8]
+output containerName string = containerId == null ? container.name : ref[12]
+output blobEndpoint string = containerId == null
+  ? account!.properties.primaryEndpoints.blob
+  : 'https://${ref[8]}.blob.${environment().suffixes.storage}/'
